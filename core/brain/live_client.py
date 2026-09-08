@@ -96,7 +96,15 @@ class GeminiBrain:
             note_path = self.journal.get_or_create_daily_note()
             return {"reply": f"Sua Daily Note foi gerada e atualizada no Obsidian: {note_path.name}"}
 
-        # 3. Comandos de Abertura de Aplicativos e Mídia (Spotify, VS Code, Obsidian, etc.)
+        # 3.1 Atalho direto para captura na Inbox (economia de tokens)
+        inbox_match = re.search(r"(?:anote|anota|salve|salva|adicionar?)\s+(?:na\s+|a\s+|no\s+)?(?:inbox|caixa de entrada)[:\s]+(.+)", text_lower)
+        if inbox_match:
+            raw_content = inbox_match.group(1).strip()
+            entry_type = "task" if any(raw_content.startswith(w) for w in ["tarefa", "fazer", "comprar", "corrigir", "implementar"]) else "thought"
+            res = self.vault.capture_to_inbox(content=raw_content, entry_type=entry_type)
+            return {"reply": res.get("reply", "Anotado na sua Inbox, senhor.")}
+
+        # 4. Comandos de Abertura de Aplicativos e Mídia (Spotify, VS Code, Obsidian, etc.)
         if "spotify" in text_lower or ("abrir" in text_lower and "música" in text_lower):
             AppLauncher.launch_spotify()
             AudioFeedback.play_activation()
@@ -224,6 +232,24 @@ Notas Relevantes Encontradas:
                     return f"CLIPBOARD_ATUALIZADO: {len(text)} caracteres copiados para a area de transferencia."
                 return "CLIPBOARD_ERRO: Falha ao escrever na area de transferencia."
 
+            def capture_to_inbox(content: str, type: str = "thought", tags: Optional[list] = None) -> str:
+                """Registra notas rapidas, tarefas ou ideias diretamente em Human/Inbox/Inbox.md no Obsidian.
+
+                Chame esta ferramenta quando o usuario disser:
+                'Jarvis, anote na inbox...', 'lembrete rapido...', 'registre a ideia...',
+                'anota isso...', 'salve na minha inbox...', 'crie uma tarefa para...', 'anotar na inbox'.
+
+                Args:
+                    content: O conteudo principal da nota, ideia ou tarefa capturada.
+                    type: O tipo da entrada: 'task' (afazeres/acoes), 'thought' (ideias/reflexoes) ou 'reference' (links/consultas).
+                    tags: Lista de tags semanticas inferidas (ex: ['#backend', '#ideia', '#tarefa']).
+
+                Returns:
+                    Confirmacao de sucesso ou status do registro.
+                """
+                res = self.vault.capture_to_inbox(content=content, entry_type=type, tags=tags)
+                return res.get("reply", "Anotado na sua Inbox, senhor.")
+
             # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
@@ -239,10 +265,10 @@ Notas Relevantes Encontradas:
                             config=types.GenerateContentConfig(
                                 system_instruction=system_prompt,
                                 temperature=0.7,
-                                tools=[activate_workspace, get_clipboard_content, set_clipboard_content],
+                                tools=[activate_workspace, get_clipboard_content, set_clipboard_content, capture_to_inbox],
                             )
                         )
-                        # Despacha function calls (activate_workspace, get_clipboard_content, set_clipboard_content)
+                        # Despacha function calls (activate_workspace, get_clipboard_content, set_clipboard_content, capture_to_inbox)
                         if response.function_calls:
                             for call in response.function_calls:
                                 if call.name == "activate_workspace":
@@ -281,6 +307,17 @@ Notas Relevantes Encontradas:
                                     return {
                                         "reply": "Conteudo gerado e copiado para a sua area de transferencia, senhor. Pode colar onde desejar."
                                     }
+
+                                elif call.name == "capture_to_inbox":
+                                    c_content = call.args.get("content", "")
+                                    c_type = call.args.get("type", "thought")
+                                    c_tags = call.args.get("tags", [])
+                                    inbox_res = self.vault.capture_to_inbox(
+                                        content=c_content,
+                                        entry_type=c_type,
+                                        tags=c_tags
+                                    )
+                                    return {"reply": inbox_res.get("reply", "Anotado na sua Inbox, senhor.")}
 
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}

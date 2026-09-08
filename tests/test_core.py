@@ -146,3 +146,76 @@ def test_clipboard_empty_returns_none_or_empty():
     result = ClipboardManager.get_text()
     # Clipboard vazio ou somente espacos deve retornar None
     assert result is None or result.strip() == ""
+
+
+# ── Obsidian Inbox Voice Scratchpad ──────────────────────────────────────────
+
+def test_obsidian_capture_to_inbox_thought():
+    """Valida o registro de pensamentos/ideias na Inbox com tags e timestamp."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    res = vault.capture_to_inbox(
+        content="Refatorar a arquitetura de cache do Gemini",
+        entry_type="thought",
+        tags=["#arquitetura", "ia"]
+    )
+    assert res["success"] is True
+    assert "ideia registrada" in res["reply"].lower()
+
+    inbox_file = TEST_VAULT / "Human" / "Inbox" / "Inbox.md"
+    assert inbox_file.exists()
+    content = inbox_file.read_text(encoding="utf-8")
+    assert "Refatorar a arquitetura de cache do Gemini" in content
+    assert "#arquitetura" in content
+    assert "#ia" in content
+    assert "**" in content  # Destaque de hora do pensamento
+
+
+def test_obsidian_capture_to_inbox_task():
+    """Valida o formato de checkbox de tarefa na Inbox."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    res = vault.capture_to_inbox(
+        content="Atualizar dependencias do package.json",
+        entry_type="task",
+        tags=["#frontend"]
+    )
+    assert res["success"] is True
+    assert "tarefa" in res["reply"].lower()
+
+    inbox_file = TEST_VAULT / "Human" / "Inbox" / "Inbox.md"
+    content = inbox_file.read_text(encoding="utf-8")
+    assert "- [ ]" in content
+    assert "Atualizar dependencias do package.json" in content
+    assert "#frontend" in content
+
+
+def test_obsidian_capture_to_inbox_reference():
+    """Valida o formato de link/referência na Inbox."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    res = vault.capture_to_inbox(
+        content="Documentação oficial do Google GenAI: https://ai.google.dev",
+        entry_type="reference",
+        tags=["docs"]
+    )
+    assert res["success"] is True
+    assert "referência" in res["reply"].lower()
+
+    inbox_file = TEST_VAULT / "Human" / "Inbox" / "Inbox.md"
+    content = inbox_file.read_text(encoding="utf-8")
+    assert "- 🔗" in content
+    assert "https://ai.google.dev" in content
+    assert "#docs" in content
+
+
+def test_obsidian_capture_to_inbox_continuous_append():
+    """Valida que multiplas capturas acumulam no mesmo arquivo continuo sem sobrescrever."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    vault.capture_to_inbox("Primeira entrada", entry_type="thought")
+    vault.capture_to_inbox("Segunda entrada", entry_type="task")
+    vault.capture_to_inbox("Terceira entrada", entry_type="thought")
+
+    inbox_file = TEST_VAULT / "Human" / "Inbox" / "Inbox.md"
+    content = inbox_file.read_text(encoding="utf-8")
+    assert "Primeira entrada" in content
+    assert "Segunda entrada" in content
+    assert "Terceira entrada" in content
+    assert content.count("- ") >= 3

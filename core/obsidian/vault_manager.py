@@ -1,7 +1,7 @@
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 from core.config import config
 
@@ -86,8 +86,67 @@ type: atomic-note
 """
         return self.write_note(rel_path, content)
 
+    def capture_to_inbox(
+        self,
+        content: str,
+        entry_type: str = "thought",
+        tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Registra nota rápida formatada em Human/Inbox/Inbox.md com timestamp e tags semânticas.
+
+        Args:
+            content: O conteúdo principal da nota ou ideia capturada.
+            entry_type: 'task' | 'thought' | 'reference' (default: 'thought').
+            tags: Lista de tags inferidas (ex: ['#backend', '#ideia']).
+
+        Returns:
+            Dict com status de sucesso, caminho do arquivo e resposta falada.
+        """
+        inbox_dir = self.vault_path / "Human" / "Inbox"
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        inbox_file = inbox_dir / "Inbox.md"
+
+        now = datetime.now()
+        time_str = now.strftime("%H:%M")
+
+        # Formata tags
+        tag_str = ""
+        if tags:
+            clean_tags = [f"#{t.strip().lstrip('#')}" for t in tags if t.strip()]
+            if clean_tags:
+                tag_str = " " + " ".join(clean_tags)
+
+        # Formatação Markdown padronizada por tipo
+        t_lower = (entry_type or "thought").lower().strip()
+        if t_lower == "task":
+            line = f"- [ ] [{time_str}] {content.strip()}{tag_str}\n"
+            default_reply = "Tarefa anotada na sua Inbox, senhor."
+        elif t_lower == "reference":
+            line = f"- 🔗 [{time_str}] {content.strip()}{tag_str}\n"
+            default_reply = "Referência registrada na Inbox."
+        else:  # thought
+            line = f"- **{time_str}** - {content.strip()}{tag_str}\n"
+            default_reply = "Ideia registrada na sua Inbox."
+
+        # Se o arquivo não existir, cria com cabeçalho contínuo
+        if not inbox_file.exists() or inbox_file.stat().st_size == 0:
+            header = "# 📥 Inbox — Voice & Quick Capture\n\nFluxo contínuo de pensamentos, tarefas e ideias capturadas pelo J.A.R.V.I.S.\n\n---\n\n"
+            with open(inbox_file, "w", encoding="utf-8") as f:
+                f.write(header)
+
+        # Escrita atômica em modo append
+        with open(inbox_file, "a", encoding="utf-8") as f:
+            f.write(line)
+
+        return {
+            "success": True,
+            "file": str(inbox_file),
+            "line": line.strip(),
+            "reply": default_reply
+        }
+
     def append_inbox_thought(self, text: str, source: str = "quick_capture") -> Path:
-        """Adiciona pensamento rápido ao Human/Inbox."""
+        """Adiciona pensamento rápido ao Human/Inbox legado."""
         today = datetime.now().strftime("%Y-%m-%d")
         filename = f"Inbox-{today}.md"
         rel_path = f"Human/Inbox/{filename}"
