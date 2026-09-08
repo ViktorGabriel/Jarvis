@@ -1,0 +1,29 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Ambientes e Segredos
+.env
+*.local
+
+# Node & Frontend
+node_modules/
+dist/
+build/
+.next/
+
+# Tauri & Electron
+src-tauri/target/
+
+# Logs e Dados Temporários
+*.log
+Machine/Logs/
+vault/
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+desktop.ini

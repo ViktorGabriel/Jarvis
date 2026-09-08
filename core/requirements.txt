@@ -1,0 +1,10 @@
+google-genai>=0.1.1
+websockets>=13.0
+watchdog>=5.0.0
+psutil>=6.0.0
+pydantic>=2.8.0
+python-dotenv>=1.0.1
+sounddevice>=0.5.0
+numpy>=2.0.0
+requests>=2.32.0
+pycaw>=20240210
