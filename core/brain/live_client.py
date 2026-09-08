@@ -72,6 +72,27 @@ class GeminiBrain:
         else:
             logger.warning("Nenhuma chave GEMINI_API_KEY configurada no .env ainda.")
 
+    async def transcribe_audio(self, wav_bytes: bytes) -> str:
+        """Transcreve áudio WAV para texto em português do Brasil usando o modelo Gemini Flash."""
+        if not self.client:
+            logger.warning("Cliente GenAI indisponível para transcrição de áudio.")
+            return ""
+        try:
+            part = types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav")
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=config.gemini_model,
+                contents=[
+                    part,
+                    "Transcreva com máxima precisão o que foi falado neste áudio em português do Brasil. Retorne UNICAMENTE o texto transcrito, sem introduções, sem aspas e sem comentários adicionais."
+                ]
+            )
+            transcription = (response.text or "").strip()
+            return transcription
+        except Exception as e:
+            logger.error(f"Erro ao transcrever áudio com Gemini: {e}")
+            return ""
+
     async def process_user_intent(self, text: str) -> Dict[str, Any]:
         """Processa comando de texto ou fala transcrita, executando as ferramentas apropriadas."""
         text_lower = text.lower().strip()

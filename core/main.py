@@ -89,22 +89,75 @@ class JarvisDaemon:
         # 7. Áudio & Voz
         self.voice_io = VoiceIO()
         self.voice_io.set_volume_listener(self._on_audio_volume)
+        self.voice_io.set_phrase_listener(self._on_speech_phrase)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._last_user_input_time: float = 0.0
+        self._last_user_input_text: str = ""
 
         # Registra callback de mensagens do HUD
         self.server.on_message_callback = self.handle_hud_message
 
     def _on_obsidian_change(self, change_type: str, rel_path: str):
-        asyncio.create_task(self.server.broadcast(EventType.OBSIDIAN_UPDATE, {
-            "type": change_type,
-            "path": rel_path
-        }))
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.server.broadcast(EventType.OBSIDIAN_UPDATE, {
+                    "type": change_type,
+                    "path": rel_path
+                }),
+                self._loop
+            )
 
     def _on_audio_volume(self, volume_level: float):
-        """Envia métrica de decibéis para animação do HUD a cada chunk relevante."""
-        if volume_level > 2.0:
-            asyncio.create_task(self.server.broadcast(EventType.AUDIO_METRICS, {
-                "volume": round(volume_level, 2)
-            }))
+        """Envia métrica de decibéis para animação do HUD a cada chunk relevante com thread-safety."""
+        if volume_level > 2.0 and self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.server.broadcast(EventType.AUDIO_METRICS, {
+                    "volume": round(volume_level, 2)
+                }),
+                self._loop
+            )
+
+    def _on_speech_phrase(self, wav_bytes: bytes):
+        """Callback acionado na thread do VoiceIO quando uma frase completa é capturada."""
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._process_speech_async(wav_bytes), self._loop)
+
+    async def _process_speech_async(self, wav_bytes: bytes):
+        """Transcreve a frase via Gemini e despacha a intenção do usuário."""
+        try:
+            logger.info("Frase vocal detectada pelo microfone nativo. Transcrevendo...")
+            await self.server.update_state(AgentState.LISTENING, "Transcrevendo comando vocal...")
+            text = await self.brain.transcribe_audio(wav_bytes)
+            if not text:
+                await self.server.update_state(AgentState.IDLE)
+                return
+
+            now = time.time()
+            # Deduplicação: se o mesmo comando acabou de ser recebido pelo HUD nos últimos 3 segundos
+            if text.lower() == self._last_user_input_text.lower() and (now - self._last_user_input_time < 3.0):
+                logger.info(f"Comando de voz duplicado ignorado: '{text}'")
+                await self.server.update_state(AgentState.IDLE)
+                return
+
+            self._last_user_input_time = now
+            self._last_user_input_text = text
+
+            logger.info(f"Comando de voz transcrito com sucesso: '{text}'")
+            # Exibe a transcrição da fala do usuário no feed do HUD
+            await self.server.broadcast(EventType.TRANSCRIPT, {
+                "id": f"user_{uuid.uuid4().hex[:10]}",
+                "sender": "user",
+                "text": text
+            })
+
+            # Processa o comando exatamente como se tivesse vindo do input do HUD
+            await self.handle_hud_message({
+                "event": EventType.USER_INPUT.value,
+                "data": {"text": text}
+            })
+        except Exception as e:
+            logger.error(f"Erro ao processar fala do usuário no backend: {e}")
+            await self.server.update_state(AgentState.IDLE)
 
     async def handle_hud_message(self, message: dict):
         event = message.get("event")
@@ -112,6 +165,8 @@ class JarvisDaemon:
 
         if event == EventType.USER_INPUT.value:
             user_text = data.get("text", "")
+            self._last_user_input_time = time.time()
+            self._last_user_input_text = user_text
             logger.info(f"Comando recebido do HUD: {user_text}")
             await self.server.update_state(AgentState.THINKING, "Processando solicitação...")
             response = await self.brain.process_user_intent(user_text)
@@ -166,6 +221,9 @@ class JarvisDaemon:
             await asyncio.sleep(2.0)
 
     async def run(self):
+        # Captura a referência ao event loop ativo para uso seguro entre threads
+        self._loop = asyncio.get_running_loop()
+
         # Inicia o servidor WebSocket
         await self.server.start()
 
