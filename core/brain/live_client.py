@@ -123,6 +123,14 @@ class GeminiBrain:
         """Processa comando de texto ou fala transcrita, executando as ferramentas apropriadas."""
         text_lower = text.lower().strip()
 
+        # 0. Teste de microfone, áudio e saudações diretas (0 tokens, resposta instantânea)
+        audio_check_triggers = [
+            "consegue me ouvir", "está me ouvindo", "esta me ouvindo", "voce me ouve", "você me ouve",
+            "me ouve", "alô", "alo", "teste de microfone", "teste de áudio", "teste de audio", "me escuta"
+        ]
+        if any(trig in text_lower for trig in audio_check_triggers):
+            return {"reply": "Perfeitamente, senhor. Áudio nítido e microfone operacional. Como posso ajudá-lo?"}
+
         # 1. Orquestração de Workspaces e Modos de Foco (dev, study, deep_work, rest)
         workspace_triggers = {
             "dev": ["hora de codar", "modo dev", "modo programação", "vamos programar", "iniciar dev", "workspace dev"],
