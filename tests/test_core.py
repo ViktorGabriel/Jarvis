@@ -114,3 +114,35 @@ def test_workspace_orchestrator():
     assert res_invalid["success"] is False
 
 
+# ── Clipboard Manager ────────────────────────────────────────────────────────
+
+def test_clipboard_set_and_get():
+    """Escreve e le um texto do clipboard."""
+    from core.system.clipboard_manager import ClipboardManager
+    test_text = "J.A.R.V.I.S clipboard test - hello world"
+    ok = ClipboardManager.set_text(test_text)
+    assert ok is True, "set_text deve retornar True em caso de sucesso"
+    result = ClipboardManager.get_text()
+    assert result is not None, "get_text nao deve retornar None apos set_text"
+    assert "J.A.R.V.I.S clipboard test" in result
+
+
+def test_clipboard_truncation():
+    """Verifica que o clipboard e truncado ao maximo especificado."""
+    from core.system.clipboard_manager import ClipboardManager
+    long_text = "A" * 200
+    ClipboardManager.set_text(long_text)
+    result = ClipboardManager.get_text(max_length=50)
+    assert result is not None
+    # O resultado deve ser menor ou igual ao limite mais o sufixo de truncagem
+    assert len(result) <= 50 + 60  # 50 chars + sufixo "[... truncado ...]"
+    assert "truncado" in result
+
+
+def test_clipboard_empty_returns_none_or_empty():
+    """Apos escrever string vazia, get_text deve retornar None."""
+    from core.system.clipboard_manager import ClipboardManager
+    ClipboardManager.set_text("")
+    result = ClipboardManager.get_text()
+    # Clipboard vazio ou somente espacos deve retornar None
+    assert result is None or result.strip() == ""

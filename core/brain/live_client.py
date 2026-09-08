@@ -16,6 +16,7 @@ from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
 from core.system.app_launcher import AppLauncher
 from core.system.workspace_orchestrator import WorkspaceOrchestrator
+from core.system.clipboard_manager import ClipboardManager
 
 logger = logging.getLogger("GeminiBrain")
 
@@ -142,7 +143,30 @@ class GeminiBrain:
                 AppLauncher.volume_down()
             return {"reply": "Volume do sistema reduzido, senhor."}
 
-        # 4. Se temos o cliente Gemini configurado, consultamos com o contexto vivo do Obsidian
+        # 5. Comandos de Clipboard — leitura direta (sem roundtrip ao Gemini)
+        clipboard_read_triggers = [
+            "analisa esse erro", "analisa isso", "o que quebrou", "o que e isso",
+            "converte o que copiei", "da uma olhada nisso", "analisa o que copiei",
+            "veja o que copiei", "veja isso", "debug isso",
+        ]
+        if any(trig in text_lower for trig in clipboard_read_triggers):
+            clip = ClipboardManager.get_text()
+            if not clip:
+                return {"reply": "A area de transferencia esta vazia ou nao possui conteudo de texto, senhor."}
+            # Injeta o clipboard no prompt enviado ao Gemini (continua para o bloco abaixo)
+            text = f"{text}\n\n[CONTEUDO DO CLIPBOARD DO USUARIO]:\n{clip}"
+            text_lower = text.lower()
+
+        # 6. Comandos de Clipboard — escrita (copiar resultado gerado)
+        clipboard_write_triggers = [
+            "copia o resultado", "copia o codigo", "cole o resultado",
+            "coloca no clipboard", "copia isso para o clipboard",
+        ]
+        if any(trig in text_lower for trig in clipboard_write_triggers):
+            # Será tratado pela tool function no bloco Gemini abaixo
+            pass
+
+        # 7. Se temos o cliente Gemini configurado, consultamos com o contexto vivo do Obsidian
         if self.client:
             # Monta contexto do RAG
             rag_context = self.rag.build_system_context()
@@ -159,20 +183,54 @@ Notas Relevantes Encontradas:
 """
 
             def activate_workspace(mode: str) -> str:
-                """Ativa e orquestra um ambiente de trabalho completo com múltiplos aplicativos e configurações de foco.
-                
+                """Ativa e orquestra um ambiente de trabalho completo com multiplos aplicativos e configuracoes de foco.
+
                 Args:
-                    mode: O modo desejado: 'dev' (programação), 'study' (estudo/Obsidian), 'deep_work' (foco total), ou 'rest' (descanso).
+                    mode: O modo desejado: 'dev' (programacao), 'study' (estudo/Obsidian), 'deep_work' (foco total), ou 'rest' (descanso).
                 """
                 return f"Workspace '{mode}' ativado."
 
-            # Cascata de modelos para contingência contra picos de demanda (503 UNAVAILABLE)
+            def get_clipboard_content(max_length: int = 8000) -> str:
+                """Le o conteudo de texto atual da area de transferencia do sistema operacional para analise ou conversao.
+
+                Use quando o usuario disser: 'analisa esse erro', 'o que quebrou aqui?',
+                'converte o que copiei', 'da uma olhada nisso', 'debug isso', 'analisa o clipboard'.
+
+                Args:
+                    max_length: Numero maximo de caracteres a retornar (padrao 8000).
+
+                Returns:
+                    O conteudo textual do clipboard, ou mensagem de erro se vazio.
+                """
+                content = ClipboardManager.get_text(max_length=max_length)
+                if content is None:
+                    return "CLIPBOARD_VAZIO: A area de transferencia esta vazia ou nao possui conteudo textual."
+                return content
+
+            def set_clipboard_content(text: str) -> str:
+                """Escreve texto na area de transferencia do sistema operacional.
+
+                Use quando gerar codigo formatado, converter dados (JSON para TypeScript, SQL, etc.)
+                ou quando o usuario pedir 'copia o resultado', 'cole no clipboard', 'copia o codigo'.
+
+                Args:
+                    text: Conteudo a ser copiado para o clipboard.
+
+                Returns:
+                    Confirmacao de sucesso ou mensagem de erro.
+                """
+                success = ClipboardManager.set_text(text)
+                if success:
+                    return f"CLIPBOARD_ATUALIZADO: {len(text)} caracteres copiados para a area de transferencia."
+                return "CLIPBOARD_ERRO: Falha ao escrever na area de transferencia."
+
+            # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
 
             last_error = None
             for model_name in candidate_models:
-                for attempt in range(2): # Tenta até 2 vezes cada modelo
+                for attempt in range(2): # Tenta ate 2 vezes cada modelo
                     try:
                         logger.info(f"Enviando prompt ao Gemini com modelo '{model_name}' (tentativa {attempt + 1})...")
                         response = self.client.models.generate_content(
@@ -181,10 +239,10 @@ Notas Relevantes Encontradas:
                             config=types.GenerateContentConfig(
                                 system_instruction=system_prompt,
                                 temperature=0.7,
-                                tools=[activate_workspace],
+                                tools=[activate_workspace, get_clipboard_content, set_clipboard_content],
                             )
                         )
-                        # Se Gemini invocou a tool activate_workspace
+                        # Despacha function calls (activate_workspace, get_clipboard_content, set_clipboard_content)
                         if response.function_calls:
                             for call in response.function_calls:
                                 if call.name == "activate_workspace":
@@ -192,23 +250,45 @@ Notas Relevantes Encontradas:
                                     ws_res = await self.orchestrator.activate_workspace(target_mode)
                                     return {"reply": ws_res.get("reply", "Ambiente configurado, senhor.")}
 
+                                elif call.name == "get_clipboard_content":
+                                    max_len = int(call.args.get("max_length", 8000))
+                                    clip_result = get_clipboard_content(max_len)
+                                    # Reenvia ao Gemini com o conteudo do clipboard para analise
+                                    follow_up = self.client.models.generate_content(
+                                        model=model_name,
+                                        contents=f"{text}\n\n[CLIPBOARD]:\n{clip_result}",
+                                        config=types.GenerateContentConfig(
+                                            system_instruction=system_prompt,
+                                            temperature=0.7,
+                                        )
+                                    )
+                                    return {"reply": follow_up.text or "Analise concluida, senhor."}
+
+                                elif call.name == "set_clipboard_content":
+                                    content_to_copy = call.args.get("text", "")
+                                    copy_result = set_clipboard_content(content_to_copy)
+                                    logger.info(copy_result)
+                                    return {
+                                        "reply": "Conteudo gerado e copiado para a sua area de transferencia, senhor. Pode colar onde desejar."
+                                    }
+
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}
                     except Exception as e:
                         last_error = e
                         err_str = str(e)
-                        logger.warning(f"Oscilação no modelo '{model_name}' (tentativa {attempt + 1}): {err_str[:120]}")
+                        logger.warning(f"Oscilacao no modelo '{model_name}' (tentativa {attempt + 1}): {err_str[:120]}")
                         if "503" in err_str or "demand" in err_str.lower() or "429" in err_str:
                             await asyncio.sleep(1.0)
                         else:
                             break
 
-            logger.error(f"Todos os modelos da cascata falharam. Último erro: {last_error}")
+            logger.error(f"Todos os modelos da cascata falharam. Ultimo erro: {last_error}")
             return {
-                "reply": "Perdão, senhor. Os servidores do Gemini estão enfrentando um pico atípico de alta demanda no momento. Recomendo aguardar alguns instantes e repetir a instrução."
+                "reply": "Perdao, senhor. Os servidores do Gemini estao enfrentando um pico atipico de alta demanda no momento. Recomendo aguardar alguns instantes e repetir a instrucao."
             }
 
-        # Resposta de fallback quando aguardando inserção da API Key
+        # Resposta de fallback quando aguardando insercao da API Key
         return {
-            "reply": f"J.A.R.V.I.S online e operacional. Chave do Gemini aguardando configuração no arquivo .env."
+            "reply": f"J.A.R.V.I.S online e operacional. Chave do Gemini aguardando configuracao no arquivo .env."
         }

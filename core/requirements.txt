@@ -8,3 +8,4 @@ sounddevice>=0.5.0
 numpy>=2.0.0
 requests>=2.32.0
 pycaw>=20240210
+pyperclip>=1.8.0
