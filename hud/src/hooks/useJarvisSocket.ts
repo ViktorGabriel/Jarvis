@@ -63,17 +63,34 @@ export function useJarvisSocket(url: string = 'ws://127.0.0.1:8765') {
               setActiveDiff(data);
               break;
 
-            case 'TRANSCRIPT':
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: Math.random().toString(36).substring(7),
-                  sender: data.sender || 'jarvis',
-                  text: data.text || '',
-                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                },
-              ]);
+            case 'TRANSCRIPT': {
+              const msgId = data.id || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+              const text = data.text || '';
+              const sender = data.sender || 'jarvis';
+              const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+              setMessages((prev) => {
+                // Previne duplicação pelo ID
+                if (data.id && prev.some((m) => m.id === data.id)) {
+                  return prev;
+                }
+                // Previne duplicação pelo mesmo conteúdo consecutivo do mesmo remetente
+                const last = prev[prev.length - 1];
+                if (last && last.sender === sender && last.text === text) {
+                  return prev;
+                }
+                return [
+                  ...prev,
+                  {
+                    id: msgId,
+                    sender,
+                    text,
+                    timestamp: time,
+                  },
+                ];
+              });
               break;
+            }
 
             default:
               break;

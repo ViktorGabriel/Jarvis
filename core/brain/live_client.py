@@ -86,20 +86,40 @@ Notas Relevantes Encontradas:
 {rag_snippets}
 """
 
-                response = self.client.models.generate_content(
-                    model=config.gemini_model,
-                    contents=text,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        temperature=0.7,
-                    )
-                )
+                # Cascata de modelos para contingência contra picos de demanda (503 UNAVAILABLE)
+                candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
+                # Remove duplicatas preservando ordem
+                candidate_models = list(dict.fromkeys(candidate_models))
 
-                reply_text = response.text or "Comando recebido, senhor."
-                return {"reply": reply_text}
-            except Exception as e:
-                logger.error(f"Erro na chamada do modelo Gemini: {e}")
-                return {"reply": f"Perdão, senhor. Ocorreu uma oscilação na conexão com a API do Gemini: {e}"}
+                last_error = None
+                for model_name in candidate_models:
+                    for attempt in range(2): # Tenta até 2 vezes cada modelo
+                        try:
+                            logger.info(f"Enviando prompt ao Gemini com modelo '{model_name}' (tentativa {attempt + 1})...")
+                            response = self.client.models.generate_content(
+                                model=model_name,
+                                contents=text,
+                                config=types.GenerateContentConfig(
+                                    system_instruction=system_prompt,
+                                    temperature=0.7,
+                                )
+                            )
+                            reply_text = response.text or "Comando recebido, senhor."
+                            return {"reply": reply_text}
+                        except Exception as e:
+                            last_error = e
+                            err_str = str(e)
+                            logger.warning(f"Oscilação no modelo '{model_name}' (tentativa {attempt + 1}): {err_str[:120]}")
+                            # Se for erro 503 de alta demanda ou 429 de taxa, espera brevemente antes de tentar o próximo
+                            if "503" in err_str or "demand" in err_str.lower() or "429" in err_str:
+                                await asyncio.sleep(1.0)
+                            else:
+                                break # Outro erro (ex: sintaxe ou parâmetro), pula para o próximo modelo
+
+                logger.error(f"Todos os modelos da cascata falharam. Último erro: {last_error}")
+                return {
+                    "reply": "Perdão, senhor. Os servidores do Gemini estão enfrentando um pico atípico de alta demanda no momento. Recomendo aguardar alguns instantes e repetir a instrução."
+                }
 
         # Resposta de fallback quando aguardando inserção da API Key
         return {

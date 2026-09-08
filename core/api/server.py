@@ -36,10 +36,13 @@ class JarvisServer:
             return
         msg = json.dumps({"event": event_type.value, "data": data})
         to_remove = set()
-        for ws in self.clients:
+        for ws in list(self.clients):
+            if getattr(ws, "closed", False):
+                to_remove.add(ws)
+                continue
             try:
                 await ws.send(msg)
-            except websockets.ConnectionClosed:
+            except Exception:
                 to_remove.add(ws)
         for ws in to_remove:
             await self.unregister(ws)

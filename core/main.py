@@ -2,6 +2,7 @@ import asyncio
 import logging
 import signal
 import sys
+import uuid
 from pathlib import Path
 
 # Adiciona o diretório raiz ao PYTHONPATH
@@ -98,6 +99,7 @@ class JarvisDaemon:
 
             await self.server.update_state(AgentState.SPEAKING, reply[:80])
             await self.server.broadcast(EventType.TRANSCRIPT, {
+                "id": f"jarvis_{uuid.uuid4().hex[:10]}",
                 "sender": "jarvis",
                 "text": reply
             })
