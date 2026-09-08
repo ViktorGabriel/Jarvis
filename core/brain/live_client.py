@@ -97,6 +97,11 @@ class GeminiBrain:
             note_path = self.journal.get_or_create_daily_note()
             return {"reply": f"Sua Daily Note foi gerada e atualizada no Obsidian: {note_path.name}"}
 
+        # 3.01 Fechamento Noturno do Diário (Atalho Rápido)
+        if any(trig in text_lower for trig in ["fechar o dia", "encerrar o dia", "fechar diário", "fechar diario", "retrospectiva do dia"]):
+            close_res = self.journal.close_daily_journal()
+            return {"reply": close_res.get("reply", "Dia consolidado com sucesso, senhor.")}
+
         # 3.1 Atalho direto para captura na Inbox (economia de tokens)
         inbox_match = re.search(r"(?:anote|anota|salve|salva|adicionar?)\s+(?:na\s+|a\s+|no\s+)?(?:inbox|caixa de entrada)[:\s]+(.+)", text_lower)
         if inbox_match:
@@ -313,6 +318,40 @@ Notas Relevantes Encontradas:
                 """
                 return f"PROPOSAL_TEST: command='{command}'"
 
+            def setup_daily_journal(priorities: list[str], time_blocks: Optional[list] = None) -> str:
+                """Estrutura ou atualiza a Daily Note do dia (Human/Journal/YYYY-MM-DD.md).
+
+                Importa tarefas pendentes de ontem e da Inbox, define prioridades e blocos de tempo.
+                Use quando o usuario disser: 'planejar meu dia', 'iniciar diario', 'preparar daily note',
+                'definir metas de hoje', 'rotina matinal'.
+
+                Args:
+                    priorities: 1 a 3 metas/focos principais para o dia (obrigatorio).
+                    time_blocks: Lista opcional de blocos [{ "time": "09:00 - 11:00", "task": "..." }].
+
+                Returns:
+                    Confirmacao da criacao ou atualizacao da Daily Note.
+                """
+                res = self.journal.setup_daily_journal(priorities=priorities, time_blocks=time_blocks)
+                return res.get("reply", "Daily Note estruturada com sucesso, senhor.")
+
+            def close_daily_journal(reflection: Optional[str] = None, energy_rating: Optional[int] = None) -> str:
+                """Consolida o encerramento do dia na Daily Note atual (retrospectiva noturna).
+
+                Calcula tarefas concluidas vs pendentes, commits realizados e registra reflexoes.
+                Use quando o usuario disser: 'fechar o dia', 'encerrar o dia', 'retrospectiva noturna',
+                'finalizar diario', 'como foi meu dia hoje?'.
+
+                Args:
+                    reflection: Reflexao rapida ou resumo do dia ditado pelo usuario.
+                    energy_rating: Avaliacao de foco/energia/produtividade de 1 a 5.
+
+                Returns:
+                    Sintese executiva do dia e status de fechamento.
+                """
+                res = self.journal.close_daily_journal(reflection=reflection, energy_rating=energy_rating)
+                return res.get("reply", "Dia consolidado com sucesso, senhor.")
+
             # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
@@ -326,6 +365,8 @@ Notas Relevantes Encontradas:
                 git_smart_commit,
                 git_push_safe,
                 run_workspace_tests,
+                setup_daily_journal,
+                close_daily_journal,
             ]
 
             last_error = None
@@ -415,6 +456,23 @@ Notas Relevantes Encontradas:
                                         cwd=self.git.workspace_root
                                     )
                                     return {"reply": test_res.get("reply", "Execucao de testes finalizada.")}
+
+                                elif call.name == "setup_daily_journal":
+                                    prio = call.args.get("priorities", ["Foco geral"])
+                                    t_blocks = call.args.get("time_blocks")
+                                    journal_res = self.journal.setup_daily_journal(priorities=prio, time_blocks=t_blocks)
+                                    return {"reply": journal_res.get("reply", "Daily Note configurada, senhor.")}
+
+                                elif call.name == "close_daily_journal":
+                                    refl = call.args.get("reflection")
+                                    rating = call.args.get("energy_rating")
+                                    if rating is not None:
+                                        try:
+                                            rating = int(rating)
+                                        except Exception:
+                                            rating = None
+                                    close_res = self.journal.close_daily_journal(reflection=refl, energy_rating=rating)
+                                    return {"reply": close_res.get("reply", "Dia consolidado, senhor.")}
 
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}

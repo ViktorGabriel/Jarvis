@@ -15,9 +15,13 @@ class GitAssistant:
                 cwd=str(self.workspace_root),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False
             )
-            return res.returncode, res.stdout, res.stderr
+            stdout = res.stdout if res.stdout is not None else ""
+            stderr = res.stderr if res.stderr is not None else ""
+            return res.returncode, stdout, stderr
         except Exception as e:
             return -1, "", str(e)
 
@@ -37,6 +41,7 @@ class GitAssistant:
     def get_diff(self, staged: bool = False, max_length: int = 4000) -> str:
         args = ["diff", "--staged"] if staged else ["diff"]
         _, out, _ = self._run_git(*args)
+        out = out or ""
         if len(out) > max_length:
             return out[:max_length] + f"\n\n[... diff truncado em {max_length} caracteres para proteger contexto ...]"
         return out

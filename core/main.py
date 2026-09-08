@@ -52,6 +52,7 @@ class JarvisDaemon:
 
         # 4. Engenharia & Git
         self.git = GitAssistant(workspace_root=ROOT_DIR, interceptor=self.interceptor)
+        self.journal.set_git_workspace(ROOT_DIR)
 
         # 5. Sistema Operacional, Foco & Orquestrador de Workspaces
         self.focus = FocusManager()

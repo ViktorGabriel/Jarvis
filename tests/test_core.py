@@ -271,3 +271,82 @@ def test_test_runner_execution_summary():
     assert res["success"] is True
     assert res["passed"] >= 1
     assert "sucesso" in res["reply"].lower()
+
+
+# ── Daily Journal Lifecycle Tools ────────────────────────────────────────────
+
+def test_setup_daily_journal_with_inheritance():
+    """Valida a criação do diário matinal herdando pendências de ontem e da inbox."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    journal = JournalManager(vault)
+
+    # 1. Simula pendência na Inbox
+    vault.capture_to_inbox("Revisar PR pendente", entry_type="task")
+
+    # 2. Executa setup_daily_journal
+    res = journal.setup_daily_journal(
+        priorities=["Implementar módulo de IA", "Escrever testes"],
+        time_blocks=[{"time": "09:00 - 11:00", "task": "Codar IA"}]
+    )
+    assert res["success"] is True
+    assert res["priorities_count"] == 2
+    assert res["inherited_tasks_count"] >= 1
+    assert "daily note criada" in res["reply"].lower()
+
+    # Verifica arquivo
+    daily_file = Path(res["file"])
+    assert daily_file.exists()
+    content = daily_file.read_text(encoding="utf-8")
+    assert "Implementar módulo de IA" in content
+    assert "Revisar PR pendente" in content
+    assert "09:00 - 11:00" in content
+    assert "status: in_progress" in content
+
+
+def test_setup_daily_journal_non_destructive_update():
+    """Valida que chamar setup em nota existente atualiza sem apagar conteúdo."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    journal = JournalManager(vault)
+
+    # Cria diário inicial
+    res1 = journal.setup_daily_journal(priorities=["Meta A"])
+    daily_file = Path(res1["file"])
+
+    # Anexa uma anotação livre
+    with open(daily_file, "a", encoding="utf-8") as f:
+        f.write("\nMinha nota importante que não pode sumir!\n")
+
+    # Atualiza com novas prioridades
+    res2 = journal.setup_daily_journal(priorities=["Meta B"])
+    assert res2["success"] is True
+
+    content = daily_file.read_text(encoding="utf-8")
+    assert "Minha nota importante que não pode sumir!" in content
+    assert "Meta B" in content
+
+
+def test_close_daily_journal():
+    """Valida o fechamento noturno: contagem de tarefas e retrospectiva."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    journal = JournalManager(vault)
+
+    # Prepara diário com 1 tarefa feita e 1 pendente
+    res = journal.setup_daily_journal(priorities=["Tarefa 1"])
+    daily_file = Path(res["file"])
+    with open(daily_file, "a", encoding="utf-8") as f:
+        f.write("\n- [x] Tarefa concluída com sucesso\n- [ ] Tarefa que ficou para amanhã\n")
+
+    # Executa fechamento
+    close_res = journal.close_daily_journal(
+        reflection="Dia altamente produtivo na refatoração",
+        energy_rating=5
+    )
+    assert close_res["success"] is True
+    assert close_res["completed_tasks"] >= 1
+    assert close_res["pending_tasks"] >= 1
+    assert "dia consolidado" in close_res["reply"].lower()
+
+    content = daily_file.read_text(encoding="utf-8")
+    assert "status: closed" in content
+    assert "Dia altamente produtivo na refatoração" in content
+    assert "⭐⭐⭐⭐⭐" in content
