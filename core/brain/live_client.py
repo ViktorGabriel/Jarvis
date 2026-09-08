@@ -11,6 +11,7 @@ from core.obsidian.journal import JournalManager
 from core.obsidian.rag import VaultRAG
 from core.engineering.git_assistant import GitAssistant
 from core.engineering.diff_engine import DiffEngine
+from core.engineering.runner import TestAndLintRunner
 from core.governance.interceptor import SafetyInterceptor
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
@@ -174,6 +175,15 @@ class GeminiBrain:
             # Será tratado pela tool function no bloco Gemini abaixo
             pass
 
+        # 6.1 Comandos de Git e Testes — atalhos diretos determinísticos (0 Tokens)
+        if text_lower in ["git status", "status do git", "verificar git", "o que foi alterado", "quais arquivos foram modificados"]:
+            res = self.git.inspect("status")
+            return {"reply": res.get("reply", "Status verificado, senhor.")}
+
+        if text_lower in ["rodar testes", "executar testes", "rodar os testes", "execute os testes", "rodar pytest", "executar pytest"]:
+            test_res = await TestAndLintRunner.run_tests_with_summary(cwd=self.git.workspace_root)
+            return {"reply": test_res.get("reply", "Suíte de testes concluída.")}
+
         # 7. Se temos o cliente Gemini configurado, consultamos com o contexto vivo do Obsidian
         if self.client:
             # Monta contexto do RAG
@@ -250,9 +260,73 @@ Notas Relevantes Encontradas:
                 res = self.vault.capture_to_inbox(content=content, entry_type=type, tags=tags)
                 return res.get("reply", "Anotado na sua Inbox, senhor.")
 
+            def git_inspect(mode: str = "status") -> str:
+                """Inspeciona o estado do repositorio Git no workspace ativo.
+
+                Use quando o usuario perguntar: 'o que foi alterado?', 'verifique o git',
+                'quais arquivos foram modificados?', 'mostre o diff', 'ultimos commits'.
+
+                Args:
+                    mode: O modo de inspecao: 'status' (arquivos alterados/staged),
+                          'diff' (modificacoes no codigo), ou 'recent_commits' (ultimos commits).
+
+                Returns:
+                    Saida formatada da inspecao Git.
+                """
+                res = self.git.inspect(mode)
+                return res.get("reply", res.get("output", "Inspecao Git concluida."))
+
+            def git_smart_commit(message: Optional[str] = None, stage_all: bool = True) -> str:
+                """Prepara e executa um commit semantico no padrao Conventional Commits.
+
+                Requer aprovacao previa no HUD pelo SafetyInterceptor antes de efetivar.
+
+                Args:
+                    message: Mensagem inferida no formato Conventional Commits (ex: 'feat(auth): add jwt middleware'). Se omitida, gerada automaticamente do diff.
+                    stage_all: Se True, executa git add -A antes do commit.
+
+                Returns:
+                    Status do commit ou aviso de cancelamento.
+                """
+                return f"PROPOSAL_COMMIT: message='{message}', stage_all={stage_all}"
+
+            def git_push_safe(remote: str = "origin", branch: Optional[str] = None) -> str:
+                """Envia os commits para o repositorio remoto com trava de seguranca critica e confirmacao no HUD.
+
+                Args:
+                    remote: Nome do remoto (padrao 'origin').
+                    branch: Nome da branch alvo (opcional).
+
+                Returns:
+                    Resultado do envio ou aviso de cancelamento.
+                """
+                return f"PROPOSAL_PUSH: remote='{remote}', branch='{branch}'"
+
+            def run_workspace_tests(command: Optional[str] = None) -> str:
+                """Executa a suite de testes locais do workspace ativo (pytest, npm test, etc.).
+
+                Args:
+                    command: Comando customizado de teste (opcional). Se omitido, autodetectado.
+
+                Returns:
+                    Resumo executivo dos testes indicando passed/failed.
+                """
+                return f"PROPOSAL_TEST: command='{command}'"
+
             # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
+
+            available_tools = [
+                activate_workspace,
+                get_clipboard_content,
+                set_clipboard_content,
+                capture_to_inbox,
+                git_inspect,
+                git_smart_commit,
+                git_push_safe,
+                run_workspace_tests,
+            ]
 
             last_error = None
             for model_name in candidate_models:
@@ -265,10 +339,10 @@ Notas Relevantes Encontradas:
                             config=types.GenerateContentConfig(
                                 system_instruction=system_prompt,
                                 temperature=0.7,
-                                tools=[activate_workspace, get_clipboard_content, set_clipboard_content, capture_to_inbox],
+                                tools=available_tools,
                             )
                         )
-                        # Despacha function calls (activate_workspace, get_clipboard_content, set_clipboard_content, capture_to_inbox)
+                        # Despacha function calls
                         if response.function_calls:
                             for call in response.function_calls:
                                 if call.name == "activate_workspace":
@@ -279,7 +353,6 @@ Notas Relevantes Encontradas:
                                 elif call.name == "get_clipboard_content":
                                     max_len = int(call.args.get("max_length", 8000))
                                     clip_result = get_clipboard_content(max_len)
-                                    # Reenvia ao Gemini com o conteudo do clipboard para analise ou conversao
                                     follow_up = self.client.models.generate_content(
                                         model=model_name,
                                         contents=f"{text}\n\n[CLIPBOARD]:\n{clip_result}",
@@ -289,7 +362,6 @@ Notas Relevantes Encontradas:
                                             tools=[set_clipboard_content],
                                         )
                                     )
-                                    # Se a resposta do follow-up pediu para copiar dados convertidos
                                     if follow_up.function_calls:
                                         for f_call in follow_up.function_calls:
                                             if f_call.name == "set_clipboard_content":
@@ -318,6 +390,31 @@ Notas Relevantes Encontradas:
                                         tags=c_tags
                                     )
                                     return {"reply": inbox_res.get("reply", "Anotado na sua Inbox, senhor.")}
+
+                                elif call.name == "git_inspect":
+                                    insp_mode = call.args.get("mode", "status")
+                                    git_res = self.git.inspect(insp_mode)
+                                    return {"reply": git_res.get("reply", git_res.get("output", "Inspecao Git concluida."))}
+
+                                elif call.name == "git_smart_commit":
+                                    msg = call.args.get("message")
+                                    stage = bool(call.args.get("stage_all", True))
+                                    commit_res = await self.git.commit(message=msg, stage_all=stage, require_approval=True)
+                                    return {"reply": commit_res.get("reply", commit_res.get("output", "Commit processado."))}
+
+                                elif call.name == "git_push_safe":
+                                    rem = call.args.get("remote", "origin")
+                                    br = call.args.get("branch")
+                                    push_res = await self.git.push(remote=rem, branch=br)
+                                    return {"reply": push_res.get("reply", push_res.get("output", "Push processado."))}
+
+                                elif call.name == "run_workspace_tests":
+                                    cmd_override = call.args.get("command")
+                                    test_res = await TestAndLintRunner.run_tests_with_summary(
+                                        cmd=cmd_override,
+                                        cwd=self.git.workspace_root
+                                    )
+                                    return {"reply": test_res.get("reply", "Execucao de testes finalizada.")}
 
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}

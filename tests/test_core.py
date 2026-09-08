@@ -219,3 +219,55 @@ def test_obsidian_capture_to_inbox_continuous_append():
     assert "Segunda entrada" in content
     assert "Terceira entrada" in content
     assert content.count("- ") >= 3
+
+
+# ── Git & Test Runner Tools ──────────────────────────────────────────────────
+
+def test_git_inspect_modes():
+    """Valida os modos de inspeção do GitAssistant (status, diff, recent_commits)."""
+    from core.engineering.git_assistant import GitAssistant
+    from core.governance.interceptor import SafetyInterceptor
+
+    interceptor = SafetyInterceptor()
+    git = GitAssistant(workspace_root=Path("."), interceptor=interceptor)
+
+    status_res = git.inspect("status")
+    assert "mode" in status_res
+    assert status_res["mode"] == "status"
+    assert "reply" in status_res
+
+    diff_res = git.inspect("diff")
+    assert diff_res["mode"] == "diff"
+    assert "reply" in diff_res
+
+    commits_res = git.inspect("recent_commits")
+    assert commits_res["mode"] == "recent_commits"
+    assert "reply" in commits_res
+
+
+def test_test_runner_auto_detect():
+    """Valida a detecção automática de comandos de teste."""
+    from core.engineering.runner import TestAndLintRunner
+
+    cmd = TestAndLintRunner.auto_detect_test_command(Path("."))
+    assert "pytest" in cmd
+
+    sanitized = TestAndLintRunner.sanitize_command("pytest -q \x00; echo oi\r")
+    assert "\x00" not in sanitized
+    assert "\r" not in sanitized
+
+
+def test_test_runner_execution_summary():
+    """Valida a execução de testes com extração semântica de resumo."""
+    import asyncio
+    from core.engineering.runner import TestAndLintRunner
+
+    res = asyncio.run(
+        TestAndLintRunner.run_tests_with_summary(
+            cmd=r".\venv\Scripts\pytest -q tests/test_core.py -k test_governance_safe_commands",
+            cwd=Path(".")
+        )
+    )
+    assert res["success"] is True
+    assert res["passed"] >= 1
+    assert "sucesso" in res["reply"].lower()

@@ -34,40 +34,116 @@ class GitAssistant:
             "raw_status": changes
         }
 
-    def get_diff(self, staged: bool = False) -> str:
+    def get_diff(self, staged: bool = False, max_length: int = 4000) -> str:
         args = ["diff", "--staged"] if staged else ["diff"]
         _, out, _ = self._run_git(*args)
+        if len(out) > max_length:
+            return out[:max_length] + f"\n\n[... diff truncado em {max_length} caracteres para proteger contexto ...]"
         return out
+
+    def get_recent_commits(self, limit: int = 5) -> str:
+        """Retorna os últimos commits no formato resumido oneline."""
+        code, out, _ = self._run_git("log", f"-n {max(1, min(20, limit))}", "--oneline")
+        return out.strip() if code == 0 else "Não foi possível recuperar o histórico de commits."
+
+    def inspect(self, mode: str = "status") -> Dict[str, Any]:
+        """Inspeciona o estado do Git com base no modo ('status', 'diff', 'recent_commits')."""
+        mode_clean = (mode or "status").lower().strip()
+
+        if mode_clean == "diff":
+            diff_text = self.get_diff()
+            if not diff_text.strip():
+                return {"mode": "diff", "output": "Nenhuma alteração detectada no momento.", "reply": "Nenhuma modificação não comitada no momento, senhor."}
+            return {
+                "mode": "diff",
+                "output": diff_text,
+                "reply": "Aqui está o diff das alterações recentes no workspace, senhor."
+            }
+
+        elif mode_clean == "recent_commits":
+            log_text = self.get_recent_commits(5)
+            return {
+                "mode": "recent_commits",
+                "output": log_text,
+                "reply": f"Últimos commits no repositório:\n{log_text}"
+            }
+
+        else:  # status
+            status_data = self.get_status()
+            if not status_data.get("is_git_repo"):
+                return {"mode": "status", "output": "O diretório atual não é um repositório Git.", "reply": "O workspace atual não é um repositório Git, senhor."}
+
+            changes = status_data.get("raw_status", [])
+            count = len(changes)
+            if count == 0:
+                return {"mode": "status", "output": "Working tree limpa.", "reply": "Nenhuma alteração pendente no repositório. Working tree limpa."}
+
+            summary_files = ", ".join(line.split()[-1] for line in changes[:4])
+            if count > 4:
+                summary_files += f" e mais {count - 4} arquivos"
+
+            reply = f"{count} arquivo{'s' if count > 1 else ''} alterado{'s' if count > 1 else ''}: {summary_files}. Deseja que eu prepare o commit?"
+            return {
+                "mode": "status",
+                "changes_count": count,
+                "files": changes,
+                "output": "\n".join(changes),
+                "reply": reply
+            }
 
     def generate_conventional_commit_message(self, diff_text: str) -> str:
         """Gera mensagem padronizada no formato Conventional Commits com base no diff."""
         if not diff_text.strip():
-            return "chore: update files"
+            return "chore(workspace): synchronize workspace files"
 
         diff_lower = diff_text.lower()
         if "test" in diff_lower:
-            prefix = "test"
+            return "test(core): update and add unit tests"
         elif "fix" in diff_lower or "bug" in diff_lower or "error" in diff_lower:
-            prefix = "fix"
+            return "fix(core): correct identified bug and stabilize behavior"
         elif "doc" in diff_lower or "readme" in diff_lower:
-            prefix = "docs"
+            return "docs(readme): update project documentation"
         elif "refactor" in diff_lower:
-            prefix = "refactor"
+            return "refactor(system): streamline code structure"
         else:
-            prefix = "feat"
+            return "feat(workspace): implement new capabilities and improvements"
 
-        return f"{prefix}: synchronize modifications and workspace improvements"
+    async def commit(self, message: Optional[str] = None, stage_all: bool = True, require_approval: bool = True) -> Dict[str, Any]:
+        """Executa git commit semântico com aprovação prévia opcional no HUD."""
+        diff_text = self.get_diff()
+        final_message = message or self.generate_conventional_commit_message(diff_text)
 
-    async def commit(self, message: str, stage_all: bool = True) -> Dict[str, Any]:
+        # Se requer aprovação, passa pelo SafetyInterceptor antes de efetivar
+        if require_approval:
+            cmd_preview = f"git commit -m \"{final_message}\""
+            allowed = await self.interceptor.guard_command(
+                cmd_preview,
+                description=f"Commit semântico: '{final_message}' ({'stage all' if stage_all else 'staged only'})"
+            )
+            if not allowed:
+                return {
+                    "success": False,
+                    "error": "Commit cancelado pelo usuário no HUD.",
+                    "reply": "Operação de commit cancelada pelo usuário, senhor."
+                }
+
         if stage_all:
             self._run_git("add", "-A")
 
-        code, out, err = self._run_git("commit", "-m", message)
-        return {
-            "success": code == 0,
-            "output": out if code == 0 else err,
-            "message": message
-        }
+        code, out, err = self._run_git("commit", "-m", final_message)
+        if code == 0:
+            return {
+                "success": True,
+                "message": final_message,
+                "output": out,
+                "reply": f"Commit realizado com sucesso: '{final_message}'."
+            }
+        else:
+            return {
+                "success": False,
+                "error": err or out,
+                "reply": f"Não foi possível concluir o commit: {err or out}"
+            }
 
     async def push(self, remote: str = "origin", branch: Optional[str] = None) -> Dict[str, Any]:
         cmd_str = f"git push {remote} {branch or ''}".strip()
@@ -77,14 +153,26 @@ class GitAssistant:
             description="Publicação de código no repositório remoto (git push)"
         )
         if not allowed:
-            return {"success": False, "error": "Operação de git push cancelada pelo usuário."}
+            return {
+                "success": False,
+                "error": "Operação de git push cancelada pelo usuário.",
+                "reply": "Envio remoto cancelado por ordem do senhor."
+            }
 
         args = ["push", remote]
         if branch:
             args.append(branch)
 
         code, out, err = self._run_git(*args)
-        return {
-            "success": code == 0,
-            "output": out if code == 0 else err
-        }
+        if code == 0:
+            return {
+                "success": True,
+                "output": out,
+                "reply": f"Código enviado com sucesso para {remote}{'/' + branch if branch else ''}, senhor."
+            }
+        else:
+            return {
+                "success": False,
+                "error": err or out,
+                "reply": f"Falha ao enviar código para o repositório remoto: {err or out}"
+            }
