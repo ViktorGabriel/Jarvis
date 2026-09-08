@@ -1,4 +1,4 @@
-﻿---
+---
 name: brainstorming
 description: "You MUST use this before any creative work - creating features, building components, adding functionality, or designing websites. Explores user intent, requirements, architecture, and design before implementation."
 ---

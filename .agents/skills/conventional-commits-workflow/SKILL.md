@@ -1,4 +1,4 @@
-﻿---
+---
 name: conventional-commits-workflow
 description: >-
   Workflow de commits convencionais para o J.A.R.V.I.S: tipos, escopos do projeto, tamanho ideal
