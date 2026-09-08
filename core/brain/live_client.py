@@ -13,6 +13,7 @@ from core.engineering.diff_engine import DiffEngine
 from core.governance.interceptor import SafetyInterceptor
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
+from core.system.app_launcher import AppLauncher
 
 logger = logging.getLogger("GeminiBrain")
 
@@ -69,7 +70,54 @@ class GeminiBrain:
             note_path = self.journal.get_or_create_daily_note()
             return {"reply": f"Sua Daily Note foi gerada e atualizada no Obsidian: {note_path.name}"}
 
-        # 3. Se temos o cliente Gemini configurado, consultamos com o contexto vivo do Obsidian
+        # 3. Comandos de Abertura de Aplicativos e Mídia (Spotify, VS Code, Obsidian, etc.)
+        if "spotify" in text_lower or ("abrir" in text_lower and "música" in text_lower):
+            AppLauncher.launch_spotify()
+            AudioFeedback.play_activation()
+            return {"reply": "Spotify inicializado com sucesso, senhor."}
+
+        if "pausar música" in text_lower or "pausar spotify" in text_lower or text_lower == "pausar":
+            AppLauncher.media_play_pause()
+            return {"reply": "Música pausada, senhor."}
+
+        if "despausar" in text_lower or "tocar música" in text_lower or "play música" in text_lower:
+            AppLauncher.media_play_pause()
+            return {"reply": "Retomando reprodução musical, senhor."}
+
+        if "próxima música" in text_lower or "pular música" in text_lower or "passar música" in text_lower:
+            AppLauncher.media_next()
+            return {"reply": "Avançando para a próxima faixa, senhor."}
+
+        if "música anterior" in text_lower or "voltar música" in text_lower:
+            AppLauncher.media_previous()
+            return {"reply": "Voltando para a faixa anterior."}
+
+        if "abrir obsidian" in text_lower:
+            AppLauncher.launch_obsidian(str(config.obsidian_vault_path))
+            AudioFeedback.play_activation()
+            return {"reply": "Cofre do Obsidian aberto com sucesso, senhor."}
+
+        if "abrir vs code" in text_lower or "abrir vscode" in text_lower or "abrir código" in text_lower:
+            AppLauncher.launch_vscode()
+            AudioFeedback.play_activation()
+            return {"reply": "VS Code aberto no seu workspace, senhor."}
+
+        if "abrir navegador" in text_lower or "abrir chrome" in text_lower or "abrir edge" in text_lower or "abrir google" in text_lower:
+            AppLauncher.launch_browser()
+            AudioFeedback.play_activation()
+            return {"reply": "Navegador de internet aberto, senhor."}
+
+        if "aumentar volume" in text_lower or "mais alto" in text_lower:
+            for _ in range(4):
+                AppLauncher.volume_up()
+            return {"reply": "Volume do sistema aumentado, senhor."}
+
+        if "abaixar volume" in text_lower or "diminuir volume" in text_lower or "mais baixo" in text_lower:
+            for _ in range(4):
+                AppLauncher.volume_down()
+            return {"reply": "Volume do sistema reduzido, senhor."}
+
+        # 4. Se temos o cliente Gemini configurado, consultamos com o contexto vivo do Obsidian
         if self.client:
             # Monta contexto do RAG
             rag_context = self.rag.build_system_context()

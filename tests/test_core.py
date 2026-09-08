@@ -76,3 +76,11 @@ def test_diff_engine():
 
     assert diff["additions"] > 0
     assert "ola mundo" in diff["diff_text"]
+
+def test_app_launcher_controls():
+    from core.system.app_launcher import AppLauncher
+    # Testa os métodos de controle de mídia e teclas sem levantar exceção
+    assert AppLauncher.media_play_pause() is True
+    assert AppLauncher.volume_up() is True
+    assert AppLauncher.volume_down() is True
+
