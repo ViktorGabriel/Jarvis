@@ -19,6 +19,7 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-react';
+import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 
 export const App: React.FC = () => {
   const {
@@ -41,6 +42,26 @@ export const App: React.FC = () => {
   const [isPinned, setIsPinned] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 0. Reconhecimento de Voz Contínuo via Web Speech API
+  const {
+    isListening: isVoiceListening,
+    interimTranscript,
+    isSupported: isVoiceSupported,
+    startListening: startVoiceListening,
+    toggleListening: toggleVoiceListening,
+  } = useSpeechRecognition({
+    onFinalResult: (transcript) => {
+      sendUserText(transcript);
+    },
+  });
+
+  // Inicia o microfone automaticamente se houver suporte
+  useEffect(() => {
+    if (isVoiceSupported) {
+      startVoiceListening();
+    }
+  }, [isVoiceSupported, startVoiceListening]);
 
   // 1. Foco automático ao acionar atalho global (window-shown)
   useEffect(() => {
@@ -124,6 +145,9 @@ export const App: React.FC = () => {
       case 'error':
         return { text: 'ERRO OPERACIONAL', color: 'text-red-500' };
       default:
+        if (isVoiceListening) {
+          return { text: 'ONLINE • MICROFONE ATIVO', color: 'text-jarvis-cyan' };
+        }
         return { text: 'ONLINE • AGUARDANDO', color: 'text-gray-400' };
     }
   };
@@ -278,22 +302,45 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* Barra de Entrada de Texto com Auto-Foco */}
+          {/* Transcrição de Fala em Tempo Real (Interim Preview) */}
+          {interimTranscript && (
+            <div className="px-3 py-1.5 bg-cyan-950/40 border-t border-cyan-800/40 text-[11px] text-cyan-300 flex items-center space-x-2 animate-pulse">
+              <Mic className="w-3.5 h-3.5 text-jarvis-cyan flex-shrink-0" />
+              <span className="truncate">Ouvindo: &ldquo;{interimTranscript}&rdquo;</span>
+            </div>
+          )}
+
+          {/* Barra de Entrada de Texto com Auto-Foco e Controle Vocal */}
           <form
             onSubmit={handleSend}
             className="p-2 bg-black/60 border-t border-jarvis-border/40 flex items-center space-x-2"
           >
+            {isVoiceSupported && (
+              <button
+                type="button"
+                onClick={toggleVoiceListening}
+                className={`p-2 rounded border transition-all ${
+                  isVoiceListening
+                    ? 'bg-red-950/60 border-red-500/60 text-red-400 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.3)]'
+                    : 'bg-black/80 hover:bg-gray-800 text-gray-400 hover:text-white border-jarvis-border/40'
+                }`}
+                title={isVoiceListening ? "Microfone ativo (clique para pausar)" : "Ativar microfone"}
+              >
+                {isVoiceListening ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+              </button>
+            )}
             <input
               ref={inputRef}
               type="text"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
-              placeholder="Digite uma instrução ou pergunta..."
+              placeholder={isVoiceListening ? "Fale um comando ou digite aqui..." : "Digite uma instrução ou pergunta..."}
               className="flex-1 bg-black/80 border border-jarvis-border/40 rounded px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-jarvis-cyan"
             />
             <button
               type="submit"
               className="p-2 bg-cyan-950/60 hover:bg-cyan-800 text-jarvis-cyan border border-jarvis-cyan/40 rounded transition-all"
+              title="Enviar comando"
             >
               <Send className="w-4 h-4" />
             </button>
