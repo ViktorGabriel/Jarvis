@@ -253,15 +253,25 @@ Notas Relevantes Encontradas:
                                 elif call.name == "get_clipboard_content":
                                     max_len = int(call.args.get("max_length", 8000))
                                     clip_result = get_clipboard_content(max_len)
-                                    # Reenvia ao Gemini com o conteudo do clipboard para analise
+                                    # Reenvia ao Gemini com o conteudo do clipboard para analise ou conversao
                                     follow_up = self.client.models.generate_content(
                                         model=model_name,
                                         contents=f"{text}\n\n[CLIPBOARD]:\n{clip_result}",
                                         config=types.GenerateContentConfig(
                                             system_instruction=system_prompt,
                                             temperature=0.7,
+                                            tools=[set_clipboard_content],
                                         )
                                     )
+                                    # Se a resposta do follow-up pediu para copiar dados convertidos
+                                    if follow_up.function_calls:
+                                        for f_call in follow_up.function_calls:
+                                            if f_call.name == "set_clipboard_content":
+                                                text_copied = f_call.args.get("text", "")
+                                                set_clipboard_content(text_copied)
+                                                return {
+                                                    "reply": follow_up.text or "Conteudo convertido e copiado para sua area de transferencia, senhor."
+                                                }
                                     return {"reply": follow_up.text or "Analise concluida, senhor."}
 
                                 elif call.name == "set_clipboard_content":
