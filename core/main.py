@@ -24,6 +24,7 @@ from core.engineering.docker_manager import DockerManager
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
 from core.system.workspace_orchestrator import WorkspaceOrchestrator
+from core.system.telemetry_service import TelemetryService
 from core.brain.voice_io import VoiceIO
 from core.brain.live_client import GeminiBrain
 
@@ -62,8 +63,9 @@ class JarvisDaemon:
         self.journal.set_git_workspace(ROOT_DIR)
         self.docker = DockerManager(workspace_root=ROOT_DIR, interceptor=self.interceptor)
 
-        # 5. Sistema Operacional, Foco & Orquestrador de Workspaces
+        # 5. Sistema Operacional, Foco, Telemetria & Orquestrador de Workspaces
         self.focus = FocusManager()
+        self.telemetry = TelemetryService()
         self.orchestrator = WorkspaceOrchestrator(
             focus_manager=self.focus,
             journal_manager=self.journal
@@ -80,7 +82,8 @@ class JarvisDaemon:
             broadcast_fn=self.server.broadcast,
             orchestrator=self.orchestrator,
             docker=self.docker,
-            sop_manager=self.sop_manager
+            sop_manager=self.sop_manager,
+            telemetry=self.telemetry
         )
 
         # 7. Áudio & Voz
@@ -143,10 +146,19 @@ class JarvisDaemon:
             })
 
     async def _system_metrics_loop(self):
-        """Loop contínuo transmitindo métricas de hardware e foco ao HUD."""
+        """Loop contínuo transmitindo métricas de hardware e foco ao HUD com alertas proativos."""
         while True:
-            metrics = FocusManager.get_hardware_metrics()
+            metrics = self.telemetry.get_system_metrics("summary")
             deep_work = self.focus.get_deep_work_status()
+
+            # Emite alerta proativo se ultrapassar limiares críticos
+            alert = metrics.get("alert")
+            if alert and alert.get("should_notify"):
+                logger.warning(f"Alerta proativo de telemetria emitido: {alert['message']}")
+                await self.server.broadcast(EventType.NOTIFICATION, {
+                    "message": f"⚠️ [ALERTA DE SISTEMA] {alert['message']}"
+                })
+
             await self.server.broadcast(EventType.SYSTEM_METRICS, {
                 "hardware": metrics,
                 "deep_work": deep_work

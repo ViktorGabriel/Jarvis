@@ -1,10 +1,36 @@
 export type AgentState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'awaiting_approval' | 'error';
 
+export interface ProcessInfo {
+  pid: number;
+  name: string;
+  cpu_percent: number;
+  memory_mb: number;
+  memory_percent?: number;
+}
+
+export interface TelemetryAlert {
+  type: string;
+  level: 'warning' | 'critical';
+  message: string;
+  percent?: number;
+  free_gb?: number;
+  should_notify?: boolean;
+}
+
 export interface HardwareMetrics {
   cpu_percent: number;
+  cpu_count?: number;
+  cpu_physical_count?: number;
   ram_used_gb: number;
   ram_total_gb: number;
+  ram_free_gb?: number;
   ram_percent: number;
+  disk_used_gb?: number;
+  disk_total_gb?: number;
+  disk_free_gb?: number;
+  disk_percent?: number;
+  top_processes?: ProcessInfo[];
+  alert?: TelemetryAlert | null;
 }
 
 export interface DeepWorkStatus {

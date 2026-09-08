@@ -20,6 +20,7 @@ from core.system.audio_controller import AudioFeedback
 from core.system.app_launcher import AppLauncher
 from core.system.workspace_orchestrator import WorkspaceOrchestrator
 from core.system.clipboard_manager import ClipboardManager
+from core.system.telemetry_service import TelemetryService
 
 logger = logging.getLogger("GeminiBrain")
 
@@ -36,6 +37,7 @@ class GeminiBrain:
         orchestrator: Optional[WorkspaceOrchestrator] = None,
         docker: Optional[DockerManager] = None,
         sop_manager: Optional[SOPManager] = None,
+        telemetry: Optional[TelemetryService] = None,
     ):
         self.vault = vault
         self.journal = journal
@@ -44,6 +46,7 @@ class GeminiBrain:
         self.focus = focus
         self.interceptor = interceptor
         self.broadcast_fn = broadcast_fn
+        self.telemetry = telemetry or TelemetryService()
         self.orchestrator = orchestrator or WorkspaceOrchestrator(
             focus_manager=self.focus,
             journal_manager=self.journal
@@ -230,6 +233,32 @@ class GeminiBrain:
         if text_lower in ["rodar testes", "executar testes", "rodar os testes", "execute os testes", "rodar pytest", "executar pytest"]:
             test_res = await TestAndLintRunner.run_tests_with_summary(cwd=self.git.workspace_root)
             return {"reply": test_res.get("reply", "Suíte de testes concluída.")}
+
+        # 6.2 Comandos de Telemetria e Saúde de Hardware — atalhos diretos determinísticos (0 Tokens)
+        telemetry_summary_triggers = [
+            "status da máquina", "status da maquina", "como está a máquina", "como esta a maquina",
+            "como está o sistema", "como esta o sistema", "telemetria do sistema", "status do hardware",
+            "saúde do sistema", "saude do sistema", "como estão os recursos", "como estao os recursos"
+        ]
+        if any(trig in text_lower for trig in telemetry_summary_triggers):
+            t_res = self.telemetry.get_system_metrics("summary")
+            return {"reply": t_res.get("reply", "Telemetria consultada, senhor.")}
+
+        if any(trig in text_lower for trig in ["uso de cpu", "carga de cpu", "uso do processador", "como está a cpu", "como esta a cpu"]):
+            t_res = self.telemetry.get_system_metrics("cpu")
+            return {"reply": t_res.get("reply", "Uso de CPU verificado, senhor.")}
+
+        if any(trig in text_lower for trig in ["uso de ram", "uso de memória", "uso de memoria", "quanto de ram", "quanta memória", "quanta memoria"]):
+            t_res = self.telemetry.get_system_metrics("memory")
+            return {"reply": t_res.get("reply", "Uso de memória verificado, senhor.")}
+
+        if any(trig in text_lower for trig in ["espaço em disco", "espaco em disco", "armazenamento livre", "disco livre", "quanto de disco"]):
+            t_res = self.telemetry.get_system_metrics("disk")
+            return {"reply": t_res.get("reply", "Espaço em disco verificado, senhor.")}
+
+        if any(trig in text_lower for trig in ["o que está pesando", "o que esta pesando", "processos mais pesados", "top processos", "o que tá consumindo memória", "o que ta consumindo memoria"]):
+            t_res = self.telemetry.get_system_metrics("top_processes")
+            return {"reply": t_res.get("reply", "Top processos verificados, senhor.")}
 
         # 7. Se temos o cliente Gemini configurado, consultamos com o contexto vivo do Obsidian
         if self.client:
@@ -482,6 +511,21 @@ Notas Relevantes Encontradas:
                 """
                 return f"PROPOSAL_EXECUTE_SOP: sop_name='{sop_name}', dry_run={dry_run}"
 
+            def get_system_telemetry(metric: str = "summary") -> str:
+                """Consulta a telemetria do hardware local da máquina (CPU, memória RAM, disco e top processos).
+
+                Use quando o usuário perguntar: 'como está a máquina?', 'status do sistema', 'uso de memória',
+                'o que está consumindo CPU?', 'quanto de disco livre temos?'.
+
+                Args:
+                    metric: Tipo de métrica desejada: 'summary' (visão geral consolidada), 'cpu', 'memory', 'disk' ou 'top_processes'.
+
+                Returns:
+                    Diagnóstico dos recursos de hardware e processos em execução.
+                """
+                res = self.telemetry.get_system_metrics(metric_type=metric)
+                return res.get("reply", "Telemetria consultada com sucesso, senhor.")
+
             # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
@@ -503,6 +547,7 @@ Notas Relevantes Encontradas:
                 check_service_health,
                 list_available_sops,
                 execute_sop,
+                get_system_telemetry,
             ]
 
             last_error = None
@@ -651,6 +696,11 @@ Notas Relevantes Encontradas:
                                     d_run = bool(call.args.get("dry_run", False))
                                     sop_run_res = await self.sop_manager.execute_sop(sop_name=s_name, dry_run=d_run)
                                     return {"reply": sop_run_res.get("reply", "Execução do procedimento concluída, senhor.")}
+
+                                elif call.name == "get_system_telemetry":
+                                    m_param = call.args.get("metric", "summary")
+                                    t_res = self.telemetry.get_system_metrics(metric_type=m_param)
+                                    return {"reply": t_res.get("reply", "Telemetria consultada com sucesso, senhor.")}
 
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}

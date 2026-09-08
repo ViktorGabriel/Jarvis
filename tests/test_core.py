@@ -737,3 +737,156 @@ echo 'passo2'
     assert len(executed) == 1  # Passo 2 nunca foi chamado!
     assert "Erro na execução" in res["reply"]
 
+
+def test_telemetry_get_system_metrics_summary():
+    """Valida coleta consolidada de métricas de sistema (CPU, RAM, Disco e Voz)."""
+    from core.system.telemetry_service import TelemetryService
+    telemetry = TelemetryService()
+    metrics = telemetry.get_system_metrics("summary")
+
+    assert metrics["success"] is True
+    assert metrics["metric"] == "summary"
+    assert "cpu_percent" in metrics
+    assert isinstance(metrics["cpu_count"], int)
+    assert metrics["ram_total_gb"] > 0
+    assert metrics["ram_percent"] >= 0
+    assert "disk_total_gb" in metrics
+    assert "reply" in metrics
+    assert len(metrics["reply"]) > 0
+
+
+def test_telemetry_metrics_by_type():
+    """Valida consultas direcionadas de métricas por tipo específico."""
+    from core.system.telemetry_service import TelemetryService
+    telemetry = TelemetryService()
+
+    # CPU
+    cpu_res = telemetry.get_system_metrics("cpu")
+    assert cpu_res["success"] is True
+    assert cpu_res["metric"] == "cpu"
+    assert "CPU" in cpu_res["reply"] or "Carga" in cpu_res["reply"]
+
+    # Memória
+    mem_res = telemetry.get_system_metrics("memory")
+    assert mem_res["success"] is True
+    assert mem_res["metric"] == "memory"
+    assert "ram_total_gb" in mem_res
+    assert "Memória RAM" in mem_res["reply"]
+
+    # Disco
+    disk_res = telemetry.get_system_metrics("disk")
+    assert disk_res["success"] is True
+    assert disk_res["metric"] == "disk"
+    assert "disk_free_gb" in disk_res
+    assert "Disco" in disk_res["reply"]
+
+
+def test_telemetry_top_processes_extraction(monkeypatch):
+    """Valida extração e ordenação dos processos que mais consom recursos."""
+    from core.system.telemetry_service import TelemetryService
+    import psutil
+
+    telemetry = TelemetryService()
+
+    class FakeProc:
+        def __init__(self, pid, name, rss, cpu_p):
+            self.info = {
+                "pid": pid,
+                "name": name,
+                "memory_info": type("obj", (object,), {"rss": rss})(),
+                "cpu_percent": cpu_p,
+                "memory_percent": 2.5,
+            }
+
+    fake_procs = [
+        FakeProc(101, "node.exe", 800 * 1024 * 1024, 5.0),
+        FakeProc(102, "chrome.exe", 1500 * 1024 * 1024, 8.0),
+        FakeProc(103, "python.exe", 200 * 1024 * 1024, 1.2),
+        FakeProc(104, "System Idle Process", 0, 0.0),
+    ]
+
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs: fake_procs)
+
+    procs = telemetry.get_top_processes(limit=2)
+    assert len(procs) == 2
+    # chrome.exe tem maior consumo de RAM (1500 MB)
+    assert procs[0]["name"] == "chrome.exe"
+    assert procs[0]["memory_mb"] == 1500.0
+    assert procs[1]["name"] == "node.exe"
+
+
+def test_telemetry_threshold_alert_and_cooldown():
+    """Valida disparo de alertas proativos para limites de RAM/CPU/Disco e controle de cooldown."""
+    from core.system.telemetry_service import TelemetryService
+    telemetry = TelemetryService()
+
+    fake_procs = [{"name": "heavy_process.exe", "memory_mb": 4096.0}]
+
+    # 1. Alerta de RAM > 88%
+    alert = telemetry._check_alerts(cpu_p=30.0, ram_p=92.0, disk_free=50.0, top_procs=fake_procs)
+    assert alert is not None
+    assert alert["type"] == "memory"
+    assert alert["level"] == "warning"
+    assert alert["should_notify"] is True
+    assert "heavy_process.exe" in alert["message"]
+
+    # 2. Cooldown ativo impede notificação imediata duplicada
+    second_alert = telemetry._check_alerts(cpu_p=30.0, ram_p=93.0, disk_free=50.0, top_procs=fake_procs)
+    assert second_alert is not None
+    assert second_alert["should_notify"] is False
+
+    # 3. Alerta de CPU > 90%
+    telemetry.last_alert_time = 0.0  # Reseta cooldown
+    cpu_alert = telemetry._check_alerts(cpu_p=95.0, ram_p=40.0, disk_free=50.0, top_procs=fake_procs)
+    assert cpu_alert is not None
+    assert cpu_alert["type"] == "cpu"
+    assert cpu_alert["level"] == "critical"
+    assert cpu_alert["should_notify"] is True
+
+    # 4. Alerta de Disco < 10GB
+    telemetry.last_alert_time = 0.0
+    disk_alert = telemetry._check_alerts(cpu_p=20.0, ram_p=50.0, disk_free=4.5, top_procs=[])
+    assert disk_alert is not None
+    assert disk_alert["type"] == "disk"
+    assert disk_alert["should_notify"] is True
+    assert "4.5 GB" in disk_alert["message"]
+
+
+def test_gemini_telemetry_deterministic_trigger():
+    """Valida atalhos diretos determinísticos de telemetria no GeminiBrain (0 tokens de API)."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from core.brain.live_client import GeminiBrain
+    from core.system.telemetry_service import TelemetryService
+
+    mock_telemetry = MagicMock(spec=TelemetryService)
+    mock_telemetry.get_system_metrics.return_value = {
+        "success": True,
+        "reply": "Memória RAM em 62%, CPU operando em 15%. Sistema perfeitamente estável."
+    }
+
+    brain = GeminiBrain(
+        vault=MagicMock(),
+        journal=MagicMock(),
+        rag=MagicMock(),
+        git=MagicMock(),
+        focus=MagicMock(),
+        interceptor=MagicMock(),
+        telemetry=mock_telemetry,
+    )
+
+    # Executa comando de status da máquina
+    res = asyncio.run(brain.process_user_intent("como está a máquina?"))
+    assert "Memória RAM em 62%" in res["reply"]
+    mock_telemetry.get_system_metrics.assert_called_with("summary")
+
+    # Executa comando de uso de RAM
+    mock_telemetry.get_system_metrics.return_value = {
+        "success": True,
+        "reply": "Memória RAM em 62%, com 9.8 GB utilizados de 16.0 GB."
+    }
+    res_ram = asyncio.run(brain.process_user_intent("uso de ram"))
+    assert "Memória RAM em 62%" in res_ram["reply"]
+    mock_telemetry.get_system_metrics.assert_called_with("memory")
+
+
