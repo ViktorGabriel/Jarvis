@@ -507,3 +507,233 @@ def test_docker_destructive_operation_governance_block(monkeypatch):
     assert app_res["success"] is True
     assert app_res["approved"] is True
     assert "concluida com sucesso" in app_res["reply"]
+
+
+def test_sop_parser_frontmatter_and_steps():
+    """Valida o parser de frontmatter YAML e extração de etapas com blocos de código."""
+    from core.obsidian.sop_manager import SOPParser
+
+    sop_file = TEST_VAULT / "Machine" / "SOPs" / "deploy-homolog.md"
+    sop_file.parent.mkdir(parents=True, exist_ok=True)
+    sop_content = """---
+title: Deploy em Homologação
+description: Atualiza os containers de teste e executa migrações
+category: devops
+triggers: ["fazer deploy", "deploy homolog"]
+tags: [sop/devops, deploy]
+---
+
+# Deploy em Homologação
+
+## Passo 1: Atualizar Repositório
+Puxa as alterações mais recentes da branch main.
+```bash
+git pull origin main
+```
+
+## Passo 2: Rodar Migrações do Banco
+Aplica os schemas pendentes.
+```bash
+python manage.py migrate
+```
+"""
+    sop_file.write_text(sop_content, encoding="utf-8")
+
+    sop = SOPParser.parse_sop(sop_file, TEST_VAULT)
+    assert sop is not None
+    assert sop.id == "deploy-homolog"
+    assert sop.title == "Deploy em Homologação"
+    assert sop.category == "devops"
+    assert "fazer deploy" in sop.triggers
+    assert len(sop.steps) == 2
+    assert sop.steps[0].title == "Atualizar Repositório"
+    assert "git pull origin main" in sop.steps[0].commands
+    assert sop.steps[1].title == "Rodar Migrações do Banco"
+    assert "python manage.py migrate" in sop.steps[1].commands
+
+
+def test_sop_list_available():
+    """Valida listagem e filtros de SOPs e Workflows no cofre."""
+    from core.obsidian.sop_manager import SOPManager
+
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    mgr = SOPManager(vault=vault)
+
+    # Cria 1 SOP e 1 Workflow
+    f1 = TEST_VAULT / "Machine" / "SOPs" / "sop-backup.md"
+    f1.parent.mkdir(parents=True, exist_ok=True)
+    f1.write_text("---\ntitle: Backup Geral\ncategory: infra\n---\n## Passo 1\n`git status`\n", encoding="utf-8")
+
+    f2 = TEST_VAULT / "Machine" / "Workflows" / "wf-onboarding.md"
+    f2.parent.mkdir(parents=True, exist_ok=True)
+    f2.write_text("---\ntitle: Onboarding de Dev\ncategory: hr\n---\n## Passo 1\n`python --version`\n", encoding="utf-8")
+
+    res = mgr.list_sops()
+    assert res["success"] is True
+    assert res["total"] >= 2
+
+    # Filtro por categoria
+    cat_res = mgr.list_sops(category="infra")
+    assert cat_res["total"] == 1
+    assert cat_res["sops"][0]["id"] == "sop-backup"
+
+    # Filtro por query
+    q_res = mgr.list_sops(query="onboarding")
+    assert q_res["total"] == 1
+    assert q_res["sops"][0]["id"] == "wf-onboarding"
+
+
+def test_sop_execute_dry_run():
+    """Valida simulação dry-run sem disparo de comandos reais."""
+    import asyncio
+    from core.obsidian.sop_manager import SOPManager
+
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    mgr = SOPManager(vault=vault)
+
+    f = TEST_VAULT / "Machine" / "SOPs" / "sop-test.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("---\ntitle: Teste Simulado\ncategory: test\n---\n## Passo 1\n```bash\necho 'nao deve rodar'\n```\n", encoding="utf-8")
+
+    res = asyncio.run(mgr.execute_sop("sop-test", dry_run=True))
+    assert res["success"] is True
+    assert res["dry_run"] is True
+    assert "Simulação" in res["reply"]
+    assert Path(res["log_file"]).exists()
+
+
+def test_sop_execute_sequential_and_audit_logging(monkeypatch):
+    """Valida execução sequencial com êxito e registro de auditoria em Machine/Logs."""
+    import asyncio
+    from core.obsidian.sop_manager import SOPManager
+
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    mgr = SOPManager(vault=vault)
+
+    f = TEST_VAULT / "Machine" / "SOPs" / "pipeline-completo.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("""---
+title: Pipeline Completo
+category: ci
+---
+## Passo 1: Checagem
+```bash
+echo passo1
+```
+## Passo 2: Build
+```bash
+echo passo2
+```
+""", encoding="utf-8")
+
+    executed = []
+    def fake_cmd(cmd, timeout=45):
+        executed.append(cmd)
+        return 0, f"Output of {cmd}", ""
+
+    monkeypatch.setattr(mgr, "_run_cmd", fake_cmd)
+
+    res = asyncio.run(mgr.execute_sop("pipeline-completo", dry_run=False))
+    assert res["success"] is True
+    assert res["status"] == "SUCCESS"
+    assert res["completed_steps"] == 2
+    assert len(executed) == 2
+
+    # Valida auditoria em Machine/Logs
+    log_path = Path(res["log_file"])
+    assert log_path.exists()
+    log_content = log_path.read_text(encoding="utf-8")
+    assert "Pipeline Completo" in log_content
+    assert "SUCCESS" in log_content
+    assert "Passo 1" in log_content
+    assert "Passo 2" in log_content
+
+
+def test_sop_execute_governance_rejection():
+    """Valida que passo destrutivo pausa para aprovação e encerra se rejeitado."""
+    import asyncio
+    from core.obsidian.sop_manager import SOPManager
+    from core.governance.interceptor import SafetyInterceptor
+
+    interceptor = SafetyInterceptor()
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    mgr = SOPManager(vault=vault, interceptor=interceptor)
+
+    f = TEST_VAULT / "Machine" / "SOPs" / "limpeza-critica.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("""---
+title: Limpeza Crítica
+category: cleanup
+---
+## Passo 1: Remover Volumes
+```bash
+docker compose down -v
+```
+## Passo 2: Pós-limpeza
+```bash
+echo nunca_chegara_aqui
+```
+""", encoding="utf-8")
+
+    async def run_sop_with_rejection():
+        async def auto_reject():
+            while not interceptor.pending_tickets:
+                await asyncio.sleep(0.01)
+            ticket_id = list(interceptor.pending_tickets.keys())[0]
+            interceptor.resolve_ticket(ticket_id, approved=False)
+
+        task = asyncio.create_task(auto_reject())
+        res = await mgr.execute_sop("limpeza-critica")
+        await task
+        return res
+
+    res = asyncio.run(run_sop_with_rejection())
+    assert res["success"] is False
+    assert res["status"] == "PARTIALLY_EXECUTED"
+    assert "cancelada no HUD" in res["reply"]
+
+    # Verifica que o log registrou a rejeição
+    log_content = Path(res["log_file"]).read_text(encoding="utf-8")
+    assert "REJECTED" in log_content
+
+
+def test_sop_execute_failure_halt(monkeypatch):
+    """Valida que erro em passo interrompe imediatamente os passos posteriores."""
+    import asyncio
+    from core.obsidian.sop_manager import SOPManager
+
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    mgr = SOPManager(vault=vault)
+
+    f = TEST_VAULT / "Machine" / "SOPs" / "falha-proposital.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("""---
+title: Falha Proposital
+category: test
+---
+## Passo 1: Quebra
+```bash
+comando_que_falha
+```
+## Passo 2: Nunca Executado
+```bash
+echo 'passo2'
+```
+""", encoding="utf-8")
+
+    executed = []
+    def fake_cmd(cmd, timeout=45):
+        executed.append(cmd)
+        if "comando_que_falha" in cmd:
+            return 1, "", "Erro fatal no comando"
+        return 0, "Sucesso", ""
+
+    monkeypatch.setattr(mgr, "_run_cmd", fake_cmd)
+
+    res = asyncio.run(mgr.execute_sop("falha-proposital"))
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert res["completed_steps"] == 1
+    assert len(executed) == 1  # Passo 2 nunca foi chamado!
+    assert "Erro na execução" in res["reply"]
+

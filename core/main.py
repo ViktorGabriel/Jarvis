@@ -18,6 +18,7 @@ from core.obsidian.vault_manager import ObsidianVaultManager
 from core.obsidian.journal import JournalManager
 from core.obsidian.watcher import ObsidianWatcher
 from core.obsidian.rag import VaultRAG
+from core.obsidian.sop_manager import SOPManager
 from core.engineering.git_assistant import GitAssistant
 from core.engineering.docker_manager import DockerManager
 from core.system.focus_manager import FocusManager
@@ -42,10 +43,15 @@ class JarvisDaemon:
         # 2. Governança e Segurança
         self.interceptor = SafetyInterceptor(broadcast_fn=self.server.broadcast)
 
-        # 3. Obsidian & Segundo Cérebro
+        # 3. Obsidian, Segundo Cérebro & SOPs
         self.vault = ObsidianVaultManager()
         self.journal = JournalManager(self.vault)
         self.rag = VaultRAG(self.vault)
+        self.sop_manager = SOPManager(
+            vault=self.vault,
+            interceptor=self.interceptor,
+            workspace_root=ROOT_DIR
+        )
         self.watcher = ObsidianWatcher(
             vault_path=config.obsidian_vault_path,
             on_change=self._on_obsidian_change
@@ -73,7 +79,8 @@ class JarvisDaemon:
             interceptor=self.interceptor,
             broadcast_fn=self.server.broadcast,
             orchestrator=self.orchestrator,
-            docker=self.docker
+            docker=self.docker,
+            sop_manager=self.sop_manager
         )
 
         # 7. Áudio & Voz

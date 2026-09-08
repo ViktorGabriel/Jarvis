@@ -13,6 +13,7 @@ from core.engineering.git_assistant import GitAssistant
 from core.engineering.diff_engine import DiffEngine
 from core.engineering.runner import TestAndLintRunner
 from core.engineering.docker_manager import DockerManager
+from core.obsidian.sop_manager import SOPManager
 from core.governance.interceptor import SafetyInterceptor
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
@@ -34,6 +35,7 @@ class GeminiBrain:
         broadcast_fn: Optional[Callable[[Any, dict], Any]] = None,
         orchestrator: Optional[WorkspaceOrchestrator] = None,
         docker: Optional[DockerManager] = None,
+        sop_manager: Optional[SOPManager] = None,
     ):
         self.vault = vault
         self.journal = journal
@@ -47,6 +49,11 @@ class GeminiBrain:
             journal_manager=self.journal
         )
         self.docker = docker or DockerManager(interceptor=self.interceptor)
+        self.sop_manager = sop_manager or SOPManager(
+            vault=self.vault,
+            interceptor=self.interceptor,
+            workspace_root=self.git.workspace_root
+        )
 
         self.client: Optional[genai.Client] = None
         self._init_client()
@@ -128,6 +135,22 @@ class GeminiBrain:
         if "status do redis" in text_lower:
             h_res = self.docker.check_health("redis")
             return {"reply": h_res.get("reply", "Verificação do Redis concluída, senhor.")}
+
+        # 3.3 Atalhos rápidos para SOPs e Workflows (economia de tokens)
+        if any(trig in text_lower for trig in [
+            "quais procedimentos você conhece", "quais procedimentos voce conhece",
+            "quais sops", "listar sops", "o que você pode automatizar", "o que voce pode automatizar",
+            "quais workflows", "listar workflows"
+        ]):
+            sop_res = self.sop_manager.list_sops()
+            return {"reply": sop_res.get("reply", "Procedimentos listados com sucesso, senhor.")}
+
+        sop_exec_match = re.search(r"(?:executar|rodar|iniciar|rodar o|executar o)\s+(?:procedimento|sop|workflow)\s+([a-zA-Z0-9_-]+)", text_lower)
+        if sop_exec_match:
+            sop_target = sop_exec_match.group(1)
+            dry_run = "simular" in text_lower or "dry run" in text_lower
+            res = await self.sop_manager.execute_sop(sop_target, dry_run=dry_run)
+            return {"reply": res.get("reply", "Execução de procedimento finalizada, senhor.")}
 
         # 4. Comandos de Abertura de Aplicativos e Mídia (Spotify, VS Code, Obsidian, etc.)
         if "spotify" in text_lower or ("abrir" in text_lower and "música" in text_lower):
@@ -428,6 +451,37 @@ Notas Relevantes Encontradas:
                 res = self.docker.check_health(target=target, port=port, endpoint=endpoint)
                 return res.get("reply", "Verificacao de integridade concluida, senhor.")
 
+            def list_available_sops(category: Optional[str] = None, query: Optional[str] = None) -> str:
+                """Lista os Procedimentos Operacionais Padrao (SOPs) e Workflows disponiveis no cofre do Obsidian.
+
+                Use quando o usuario perguntar: 'quais procedimentos voce conhece?',
+                'o que voce pode automatizar?', 'listar sops', ou antes de sugerir automacoes.
+
+                Args:
+                    category: Filtrar por categoria (opcional, ex: 'maintenance', 'engineering').
+                    query: Termo de busca no titulo, descricao ou tags (opcional).
+
+                Returns:
+                    Catalogo consolidado de procedimentos disponiveis.
+                """
+                res = self.sop_manager.list_sops(category=category, query=query)
+                return res.get("reply", "Consulta de SOPs concluida, senhor.")
+
+            def execute_sop(sop_name: str, dry_run: bool = False) -> str:
+                """Interpreta e executa sequencialmente os passos de um SOP ou Workflow da pasta Machine/.
+
+                Respeita a governanca: comandos de alto risco pausam para confirmacao no HUD.
+                Registra auditoria detalhada em Machine/Logs/YYYY-MM-DD-sop-runs.md.
+
+                Args:
+                    sop_name: Nome do arquivo ou identificador do SOP (ex: 'limpeza-ambiente', 'setup-novo-projeto').
+                    dry_run: Se True, apenas simula os passos sem executar comandos reais. Padrao False.
+
+                Returns:
+                    Status da execucao, passos validados e caminho do log gerado.
+                """
+                return f"PROPOSAL_EXECUTE_SOP: sop_name='{sop_name}', dry_run={dry_run}"
+
             # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
@@ -447,6 +501,8 @@ Notas Relevantes Encontradas:
                 docker_manage_service,
                 docker_destructive_operation,
                 check_service_health,
+                list_available_sops,
+                execute_sop,
             ]
 
             last_error = None
@@ -583,6 +639,18 @@ Notas Relevantes Encontradas:
                                     ep = call.args.get("endpoint")
                                     h_res = self.docker.check_health(target=tgt, port=p, endpoint=ep)
                                     return {"reply": h_res.get("reply", "Verificacao de integridade concluida, senhor.")}
+
+                                elif call.name == "list_available_sops":
+                                    cat = call.args.get("category")
+                                    q = call.args.get("query")
+                                    sop_list_res = self.sop_manager.list_sops(category=cat, query=q)
+                                    return {"reply": sop_list_res.get("reply", "Procedimentos listados com sucesso, senhor.")}
+
+                                elif call.name == "execute_sop":
+                                    s_name = call.args.get("sop_name", "")
+                                    d_run = bool(call.args.get("dry_run", False))
+                                    sop_run_res = await self.sop_manager.execute_sop(sop_name=s_name, dry_run=d_run)
+                                    return {"reply": sop_run_res.get("reply", "Execução do procedimento concluída, senhor.")}
 
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}
