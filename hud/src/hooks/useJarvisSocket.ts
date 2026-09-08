@@ -29,6 +29,17 @@ export function useJarvisSocket(url: string = 'ws://127.0.0.1:8765') {
     agentStateRef.current = agentState;
   }, [agentState]);
 
+  useEffect(() => {
+    const handleTestApproval = (e: any) => {
+      if (e.detail) {
+        setPendingApproval(e.detail);
+        setAgentState('awaiting_approval');
+      }
+    };
+    window.addEventListener('jarvis-test-approval', handleTestApproval);
+    return () => window.removeEventListener('jarvis-test-approval', handleTestApproval);
+  }, []);
+
   const connect = useCallback(() => {
     try {
       const ws = new WebSocket(url);
