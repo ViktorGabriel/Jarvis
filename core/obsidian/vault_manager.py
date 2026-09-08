@@ -13,15 +13,15 @@ class ObsidianVaultManager:
     def _ensure_structure(self):
         """Garante a taxonomia oficial do J.A.R.V.I.S no cofre."""
         subdirs = [
-            config.human_journal_path,
-            config.human_inbox_path,
-            config.human_voice_notes_path,
-            config.human_projects_path,
-            config.human_user_context_path,
-            config.machine_sops_path,
-            config.machine_workflows_path,
-            config.machine_research_path,
-            config.machine_logs_path,
+            self.vault_path / "Human" / "Journal",
+            self.vault_path / "Human" / "Inbox",
+            self.vault_path / "Human" / "Voice Notes",
+            self.vault_path / "Human" / "Projects",
+            self.vault_path / "Human" / "User Context",
+            self.vault_path / "Machine" / "SOPs",
+            self.vault_path / "Machine" / "Workflows",
+            self.vault_path / "Machine" / "Research Results",
+            self.vault_path / "Machine" / "Logs",
         ]
         for s in subdirs:
             s.mkdir(parents=True, exist_ok=True)
