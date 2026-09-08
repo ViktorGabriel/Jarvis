@@ -54,8 +54,22 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 
-// IPC para controle da janela (minimizar, fechar, fixar no topo)
+// IPC para controle da janela (minimizar, tela cheia, fechar, fixar no topo)
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-toggle-maximize', () => {
+  if (mainWindow?.isFullScreen()) {
+    mainWindow?.setFullScreen(false);
+  } else if (mainWindow?.isMaximized()) {
+    mainWindow?.unmaximize();
+  } else {
+    mainWindow?.maximize();
+  }
+});
+ipcMain.on('window-toggle-fullscreen', () => {
+  if (mainWindow) {
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  }
+});
 ipcMain.on('window-close', () => mainWindow?.hide());
 ipcMain.on('window-toggle-pin', (event, isPinned) => {
   mainWindow?.setAlwaysOnTop(isPinned);

@@ -15,6 +15,8 @@ import {
   Shield,
   Activity,
   Code2,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -36,6 +38,7 @@ export const App: React.FC = () => {
 
   const [inputVal, setInputVal] = useState('');
   const [isPinned, setIsPinned] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,6 +51,20 @@ export const App: React.FC = () => {
     const next = !isPinned;
     setIsPinned(next);
     (window as any).jarvisElectron?.togglePin(next);
+  };
+
+  const handleToggleFullscreen = () => {
+    const next = !isFullscreen;
+    setIsFullscreen(next);
+    if ((window as any).jarvisElectron?.toggleFullscreen) {
+      (window as any).jarvisElectron.toggleFullscreen();
+    } else {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    }
   };
 
   const handleMinimize = () => {
@@ -102,11 +119,20 @@ export const App: React.FC = () => {
           <button
             onClick={handleTogglePin}
             className={`p-1 rounded hover:bg-white/10 transition-all ${
-              isPinned ? 'text-jarvis-cyan' : 'text-gray-400'
+              isPinned ? 'text-jarvis-cyan' : 'text-gray-400 hover:text-white'
             }`}
             title="Fixar no Topo"
           >
             <Pin className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleToggleFullscreen}
+            className={`p-1 rounded hover:bg-white/10 transition-all ${
+              isFullscreen ? 'text-jarvis-cyan' : 'text-gray-400 hover:text-white'
+            }`}
+            title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={handleMinimize}
