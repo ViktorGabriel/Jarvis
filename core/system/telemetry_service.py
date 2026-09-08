@@ -18,11 +18,19 @@ class TelemetryService:
     def __init__(self):
         self.last_alert_time: float = 0.0
         self.last_alert_msg: str = ""
+        # Cache de processos de alto consumo para evitar escaneamento excessivo a cada 2s
+        self._top_procs_cache: List[Dict[str, Any]] = []
+        self._last_procs_scan: float = 0.0
+        self._procs_cache_ttl: float = 4.0
         # Inicializa medidor de CPU sem bloquear
         psutil.cpu_percent(interval=None)
 
     def get_top_processes(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """Identifica os processos que mais consom memoria RAM e processamento."""
+        """Identifica os processos que mais consom memoria RAM e processamento com cache inteligente."""
+        now = time.time()
+        if (now - self._last_procs_scan < self._procs_cache_ttl) and self._top_procs_cache:
+            return self._top_procs_cache[:limit]
+
         processes = []
         for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info", "memory_percent"]):
             try:
@@ -50,6 +58,8 @@ class TelemetryService:
 
         # Ordena prioritariamente por consumo de RAM (MB)
         processes.sort(key=lambda x: x["memory_mb"], reverse=True)
+        self._top_procs_cache = processes
+        self._last_procs_scan = now
         return processes[:limit]
 
     def get_system_metrics(self, metric_type: str = "summary") -> Dict[str, Any]:

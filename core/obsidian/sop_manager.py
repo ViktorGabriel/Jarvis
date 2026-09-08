@@ -513,8 +513,8 @@ class SOPManager:
                         summary_error = f"Comando crítico bloqueado no passo {step.step_number}."
                         break
 
-                # Executa o comando
-                code, out, err = self._run_cmd(cmd)
+                # Executa o comando de forma assíncrona em thread separada para não travar o loop
+                code, out, err = await asyncio.to_thread(self._run_cmd, cmd)
                 if out:
                     step_output.append(out)
                 if err:

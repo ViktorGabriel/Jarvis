@@ -1,8 +1,11 @@
 import asyncio
+import logging
 import uuid
 from typing import Dict, Optional, Callable, Any
 from core.governance.policy import GovernancePolicy, RiskLevel
 from core.api.protocol import EventType
+
+logger = logging.getLogger("SafetyInterceptor")
 
 class SafetyTicket:
     def __init__(self, action_type: str, description: str, command: str, risk_reason: str):
@@ -11,7 +14,11 @@ class SafetyTicket:
         self.description = description
         self.command = command
         self.risk_reason = risk_reason
-        self.future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+        self.future: asyncio.Future[bool] = loop.create_future()
 
 class SafetyInterceptor:
     def __init__(self, broadcast_fn: Optional[Callable[[EventType, dict], Any]] = None):
@@ -45,9 +52,14 @@ class SafetyInterceptor:
                 "risk_reason": ticket.risk_reason,
             })
 
-        # Aguarda decisão visual ou por voz
-        approved = await ticket.future
-        self.pending_tickets.pop(ticket.id, None)
+        # Aguarda decisão visual ou por voz com timeout de 120 segundos
+        try:
+            approved = await asyncio.wait_for(ticket.future, timeout=120.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout de autorização de governança para ticket [{ticket.id}]. Bloqueado preventivamente.")
+            approved = False
+        finally:
+            self.pending_tickets.pop(ticket.id, None)
         return approved
 
     def resolve_ticket(self, ticket_id: str, approved: bool):

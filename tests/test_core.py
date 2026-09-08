@@ -890,3 +890,131 @@ def test_gemini_telemetry_deterministic_trigger():
     mock_telemetry.get_system_metrics.assert_called_with("memory")
 
 
+def test_voice_io_vad_and_wav_generation():
+    """Valida a conversão de PCM para WAV e a montagem de frases em VoiceIO."""
+    import wave
+    import io
+    import numpy as np
+    from core.brain.voice_io import VoiceIO
+
+    voice = VoiceIO(sample_rate=16000)
+
+    # 1. Valida conversão pcm_to_wav
+    fake_pcm = b"\x00\x01" * 16000  # 1 segundo de áudio (16000 samples de 16-bit)
+    wav_bytes = voice._pcm_to_wav(fake_pcm)
+    assert wav_bytes.startswith(b"RIFF")
+    assert b"WAVE" in wav_bytes
+
+    # Inspeciona cabeçalho WAV gerado
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+        assert wf.getnchannels() == 1
+        assert wf.getsampwidth() == 2
+        assert wf.getframerate() == 16000
+        assert wf.getnframes() == 16000
+
+    # 2. Valida captura de buffer no VAD
+    recorded_phrases = []
+    voice.set_phrase_listener(lambda audio: recorded_phrases.append(audio))
+
+    # Simula envio de chunk de áudio ativo (vol > 12.0)
+    fake_indata = np.full((1024, 1), 0.2, dtype=np.float32)
+    voice._audio_input_callback(fake_indata, 1024, None, None)
+
+    assert voice._is_speaking_active is True
+    assert len(voice._speech_buffer) >= 1
+
+
+def test_telemetry_top_processes_caching(monkeypatch):
+    """Valida que get_top_processes utiliza cache TTL de 4 segundos e economiza CPU."""
+    import psutil
+    import time
+    from core.system.telemetry_service import TelemetryService
+
+    telemetry = TelemetryService()
+
+    call_count = 0
+    class FakeProc:
+        def __init__(self, pid, name, rss):
+            self.info = {
+                "pid": pid,
+                "name": name,
+                "cpu_percent": 1.0,
+                "memory_info": type("Mem", (), {"rss": rss})(),
+                "memory_percent": 2.0,
+            }
+
+    def fake_iter(attrs):
+        nonlocal call_count
+        call_count += 1
+        return [FakeProc(10, "proc1.exe", 500 * 1024 * 1024)]
+
+    monkeypatch.setattr(psutil, "process_iter", fake_iter)
+
+    # Primeira chamada: varre psutil
+    res1 = telemetry.get_top_processes(limit=5)
+    assert call_count == 1
+    assert res1[0]["name"] == "proc1.exe"
+
+    # Segunda chamada imediata: deve retornar do cache sem chamar process_iter
+    res2 = telemetry.get_top_processes(limit=5)
+    assert call_count == 1
+    assert res2[0]["name"] == "proc1.exe"
+
+    # Simula expiração do TTL
+    telemetry._last_procs_scan = time.time() - 5.0
+    res3 = telemetry.get_top_processes(limit=5)
+    assert call_count == 2
+    assert res3[0]["name"] == "proc1.exe"
+
+
+def test_governance_interceptor_timeout(monkeypatch):
+    """Valida que o interceptor de governança aplica timeout preventivo e rejeita se não respondido."""
+    import asyncio
+    from core.governance.interceptor import SafetyInterceptor
+
+    interceptor = SafetyInterceptor()
+
+    async def run_timeout_check():
+        # Testa guard_command com timeout reduzido através de mock no wait_for
+        orig_wait_for = asyncio.wait_for
+
+        async def mock_wait_for(fut, timeout):
+            raise asyncio.TimeoutError()
+
+        monkeypatch.setattr(asyncio, "wait_for", mock_wait_for)
+        approved = await interceptor.guard_command("del /f /q critical_file.txt", "Remoção crítica")
+        assert approved is False
+        assert len(interceptor.pending_tickets) == 0
+
+    asyncio.run(run_timeout_check())
+
+
+def test_gemini_transcribe_audio():
+    """Valida o método transcribe_audio no GeminiBrain com mock da API GenAI."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from core.brain.live_client import GeminiBrain
+
+    brain = GeminiBrain(
+        vault=MagicMock(),
+        journal=MagicMock(),
+        rag=MagicMock(),
+        git=MagicMock(),
+        focus=MagicMock(),
+        interceptor=MagicMock(),
+    )
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "olá jarvis como está o sistema"
+    mock_client.models.generate_content.return_value = mock_response
+    brain.client = mock_client
+
+    fake_wav = b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+    transcription = asyncio.run(brain.transcribe_audio(fake_wav))
+
+    assert transcription == "olá jarvis como está o sistema"
+    mock_client.models.generate_content.assert_called_once()
+
+
+

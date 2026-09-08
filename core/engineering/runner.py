@@ -1,6 +1,8 @@
 import asyncio
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -57,7 +59,10 @@ class TestAndLintRunner:
             }
         except asyncio.TimeoutError:
             try:
-                process.kill()
+                if sys.platform == "win32":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True)
+                else:
+                    process.kill()
             except Exception:
                 pass
             return {
