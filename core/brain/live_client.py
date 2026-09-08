@@ -73,25 +73,51 @@ class GeminiBrain:
             logger.warning("Nenhuma chave GEMINI_API_KEY configurada no .env ainda.")
 
     async def transcribe_audio(self, wav_bytes: bytes) -> str:
-        """Transcreve áudio WAV para texto em português do Brasil usando o modelo Gemini Flash."""
+        """Transcreve áudio WAV para texto em português do Brasil usando cascata de modelos do Gemini."""
         if not self.client:
             logger.warning("Cliente GenAI indisponível para transcrição de áudio.")
             return ""
-        try:
-            part = types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav")
-            response = await asyncio.to_thread(
-                self.client.models.generate_content,
-                model=config.gemini_model,
-                contents=[
-                    part,
-                    "Transcreva com máxima precisão o que foi falado neste áudio em português do Brasil. Retorne UNICAMENTE o texto transcrito, sem introduções, sem aspas e sem comentários adicionais."
-                ]
-            )
-            transcription = (response.text or "").strip()
-            return transcription
-        except Exception as e:
-            logger.error(f"Erro ao transcrever áudio com Gemini: {e}")
-            return ""
+
+        part = types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav")
+        candidate_models = [
+            config.gemini_model,
+            "gemini-3.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
+            "gemini-flash-latest",
+            "gemini-2.5-pro",
+        ]
+        ordered_candidates = list(dict.fromkeys([m for m in candidate_models if m]))
+
+        for model_name in ordered_candidates:
+            try:
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=model_name,
+                    contents=[
+                        part,
+                        "Transcreva com máxima precisão o que foi falado neste áudio em português do Brasil. Retorne UNICAMENTE o texto transcrito, sem introduções, sem aspas e sem comentários adicionais."
+                    ],
+                    config=types.GenerateContentConfig(
+                        temperature=0.0,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                    )
+                )
+                transcription = (response.text or "").strip()
+                if transcription:
+                    logger.info(f"Áudio transcrito com sucesso via modelo [{model_name}]: '{transcription}'")
+                    return transcription
+            except Exception as e:
+                err_str = str(e)
+                if any(k in err_str for k in ["503", "429", "404", "UNAVAILABLE", "NOT_FOUND", "demand"]):
+                    logger.warning(f"Modelo [{model_name}] indisponível para transcrição ({err_str[:80]}). Tentando fallback em cascata...")
+                    await asyncio.sleep(0.3)
+                    continue
+                else:
+                    logger.error(f"Erro ao transcrever áudio com modelo [{model_name}]: {e}")
+                    break
+
+        return ""
 
     async def process_user_intent(self, text: str) -> Dict[str, Any]:
         """Processa comando de texto ou fala transcrita, executando as ferramentas apropriadas."""
@@ -547,9 +573,16 @@ Notas Relevantes Encontradas:
                 res = self.telemetry.get_system_metrics(metric_type=metric)
                 return res.get("reply", "Telemetria consultada com sucesso, senhor.")
 
-            # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
-            candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
-            candidate_models = list(dict.fromkeys(candidate_models))
+            # Cascata de modelos para contingência contra picos de demanda (503 UNAVAILABLE / 429 / 404)
+            candidate_models = [
+                config.gemini_model,
+                "gemini-3.5-flash-lite",
+                "gemini-3.5-flash",
+                "gemini-3.6-flash",
+                "gemini-flash-latest",
+                "gemini-2.5-pro",
+            ]
+            candidate_models = list(dict.fromkeys([m for m in candidate_models if m]))
 
             available_tools = [
                 activate_workspace,
@@ -583,6 +616,7 @@ Notas Relevantes Encontradas:
                                 system_instruction=system_prompt,
                                 temperature=0.7,
                                 tools=available_tools,
+                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                             )
                         )
                         # Despacha function calls
@@ -603,6 +637,7 @@ Notas Relevantes Encontradas:
                                             system_instruction=system_prompt,
                                             temperature=0.7,
                                             tools=[set_clipboard_content],
+                                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                                         )
                                     )
                                     if follow_up.function_calls:
