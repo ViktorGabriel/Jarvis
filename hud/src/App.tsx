@@ -90,7 +90,7 @@ export const App: React.FC = () => {
             J.A.R.V.I.S. • SISTEMA TÁTICO
           </span>
           <span className="text-[10px] text-gray-500 bg-gray-900/60 px-2 py-0.5 rounded border border-gray-800">
-            GEMINI 2.0 LIVE
+            GEMINI FLASH CORE
           </span>
         </div>
 

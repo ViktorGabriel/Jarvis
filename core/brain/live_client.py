@@ -87,7 +87,7 @@ Notas Relevantes Encontradas:
 """
 
                 response = self.client.models.generate_content(
-                    model="gemini-2.0-flash",
+                    model=config.gemini_model,
                     contents=text,
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
