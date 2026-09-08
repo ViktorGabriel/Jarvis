@@ -12,6 +12,7 @@ from core.obsidian.rag import VaultRAG
 from core.engineering.git_assistant import GitAssistant
 from core.engineering.diff_engine import DiffEngine
 from core.engineering.runner import TestAndLintRunner
+from core.engineering.docker_manager import DockerManager
 from core.governance.interceptor import SafetyInterceptor
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
@@ -32,6 +33,7 @@ class GeminiBrain:
         interceptor: SafetyInterceptor,
         broadcast_fn: Optional[Callable[[Any, dict], Any]] = None,
         orchestrator: Optional[WorkspaceOrchestrator] = None,
+        docker: Optional[DockerManager] = None,
     ):
         self.vault = vault
         self.journal = journal
@@ -44,6 +46,7 @@ class GeminiBrain:
             focus_manager=self.focus,
             journal_manager=self.journal
         )
+        self.docker = docker or DockerManager(interceptor=self.interceptor)
 
         self.client: Optional[genai.Client] = None
         self._init_client()
@@ -109,6 +112,22 @@ class GeminiBrain:
             entry_type = "task" if any(raw_content.startswith(w) for w in ["tarefa", "fazer", "comprar", "corrigir", "implementar"]) else "thought"
             res = self.vault.capture_to_inbox(content=raw_content, entry_type=entry_type)
             return {"reply": res.get("reply", "Anotado na sua Inbox, senhor.")}
+
+        # 3.2 Atalhos rápidos para Docker e Infraestrutura (economia de tokens)
+        if any(trig in text_lower for trig in [
+            "como estão os containers", "como estao os containers", "status dos containers",
+            "o docker tá rodando", "o docker ta rodando", "status do docker", "verificar containers"
+        ]):
+            d_res = self.docker.inspect_services()
+            return {"reply": d_res.get("reply", "Status dos containers verificado, senhor.")}
+
+        if any(trig in text_lower for trig in ["status do postgres", "status do banco de dados", "status do banco"]):
+            h_res = self.docker.check_health("postgres")
+            return {"reply": h_res.get("reply", "Verificação do banco de dados concluída, senhor.")}
+
+        if "status do redis" in text_lower:
+            h_res = self.docker.check_health("redis")
+            return {"reply": h_res.get("reply", "Verificação do Redis concluída, senhor.")}
 
         # 4. Comandos de Abertura de Aplicativos e Mídia (Spotify, VS Code, Obsidian, etc.)
         if "spotify" in text_lower or ("abrir" in text_lower and "música" in text_lower):
@@ -352,6 +371,63 @@ Notas Relevantes Encontradas:
                 res = self.journal.close_daily_journal(reflection=reflection, energy_rating=energy_rating)
                 return res.get("reply", "Dia consolidado com sucesso, senhor.")
 
+            def docker_inspect_services(all: bool = False) -> str:
+                """Inspeciona containers Docker em execucao ou todos os containers do sistema.
+
+                Use quando o usuario perguntar: 'como estao os containers?', 'status do banco de dados',
+                'o docker ta rodando?', 'quais containers estao ativos?'.
+
+                Args:
+                    all: Se True, lista todos os containers incluindo parados/inativos. Padrao False.
+
+                Returns:
+                    Relatorio consolidado dos containers com nomes, status, portas e uptime.
+                """
+                res = self.docker.inspect_services(all_containers=all)
+                return res.get("reply", "Inspecao de containers concluida, senhor.")
+
+            def docker_manage_service(action: str, target: Optional[str] = None, compose_file: Optional[str] = None) -> str:
+                """Inicia, para ou reinicia servicos de infraestrutura e containers Docker.
+
+                Args:
+                    action: Acao a executar ('start', 'stop', 'restart').
+                    target: Nome do container ou servico compose (ou 'all').
+                    compose_file: Caminho relativo para o docker-compose.yml (opcional).
+
+                Returns:
+                    Resultado da acao nos servicos.
+                """
+                res = self.docker.manage_service(action=action, target=target, compose_file=compose_file)
+                return res.get("reply", "Comando de gerenciamento Docker processado, senhor.")
+
+            def docker_destructive_operation(action: str, target: Optional[str] = None) -> str:
+                """Executa operacoes destrutivas no Docker com perda de estado (down com volumes, prune, rm).
+
+                Trava de seguranca critica obrigatoria: exige autorizacao previa do usuario no HUD.
+
+                Args:
+                    action: 'down_volumes' (apaga volumes locais), 'prune_system' (limpeza geral) ou 'remove_container' (exclui container).
+                    target: Nome do container para remocao (obrigatorio se action for 'remove_container').
+
+                Returns:
+                    Resultado da operacao autorizada ou aviso de cancelamento.
+                """
+                return f"PROPOSAL_DOCKER_DESTRUCTIVE: action='{action}', target='{target}'"
+
+            def check_service_health(target: str = "postgres", port: Optional[int] = None, endpoint: Optional[str] = None) -> str:
+                """Verifica a integridade e conectividade de servicos locais (PostgreSQL, Redis, APIs) via TCP ou HTTP.
+
+                Args:
+                    target: Servico a verificar ('postgres', 'redis', 'api' ou 'custom').
+                    port: Porta TCP customizada (opcional).
+                    endpoint: URL ou rota HTTP para teste GET (ex: 'http://localhost:3000/health').
+
+                Returns:
+                    Status de saude, latencia em ms e diagnostico de conectividade.
+                """
+                res = self.docker.check_health(target=target, port=port, endpoint=endpoint)
+                return res.get("reply", "Verificacao de integridade concluida, senhor.")
+
             # Cascata de modelos para contingencia contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
@@ -367,6 +443,10 @@ Notas Relevantes Encontradas:
                 run_workspace_tests,
                 setup_daily_journal,
                 close_daily_journal,
+                docker_inspect_services,
+                docker_manage_service,
+                docker_destructive_operation,
+                check_service_health,
             ]
 
             last_error = None
@@ -473,6 +553,36 @@ Notas Relevantes Encontradas:
                                             rating = None
                                     close_res = self.journal.close_daily_journal(reflection=refl, energy_rating=rating)
                                     return {"reply": close_res.get("reply", "Dia consolidado, senhor.")}
+
+                                elif call.name == "docker_inspect_services":
+                                    all_c = bool(call.args.get("all", False))
+                                    d_res = self.docker.inspect_services(all_containers=all_c)
+                                    return {"reply": d_res.get("reply", "Inspecao de containers concluida, senhor.")}
+
+                                elif call.name == "docker_manage_service":
+                                    act = call.args.get("action", "start")
+                                    tgt = call.args.get("target")
+                                    c_file = call.args.get("compose_file")
+                                    m_res = self.docker.manage_service(action=act, target=tgt, compose_file=c_file)
+                                    return {"reply": m_res.get("reply", "Comando de gerenciamento processado, senhor.")}
+
+                                elif call.name == "docker_destructive_operation":
+                                    act = call.args.get("action", "")
+                                    tgt = call.args.get("target")
+                                    dest_res = await self.docker.destructive_operation(action=act, target=tgt)
+                                    return {"reply": dest_res.get("reply", "Operacao destrutiva processada.")}
+
+                                elif call.name == "check_service_health":
+                                    tgt = call.args.get("target", "postgres")
+                                    p = call.args.get("port")
+                                    if p is not None:
+                                        try:
+                                            p = int(p)
+                                        except Exception:
+                                            p = None
+                                    ep = call.args.get("endpoint")
+                                    h_res = self.docker.check_health(target=tgt, port=p, endpoint=ep)
+                                    return {"reply": h_res.get("reply", "Verificacao de integridade concluida, senhor.")}
 
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}

@@ -27,7 +27,10 @@ def test_governance_destructive_commands():
         "git push origin master",
         "git push --force",
         "sudo apt update",
-        "runas /user:Administrator cmd.exe"
+        "runas /user:Administrator cmd.exe",
+        "docker compose down -v",
+        "docker system prune",
+        "docker rm -f api_container",
     ]
     for cmd in critical_cmds:
         risk, reason = GovernancePolicy.evaluate_command(cmd)
@@ -350,3 +353,157 @@ def test_close_daily_journal():
     assert "status: closed" in content
     assert "Dia altamente produtivo na refatoração" in content
     assert "⭐⭐⭐⭐⭐" in content
+
+
+def test_docker_manager_is_running_and_inspect_daemon_down(monkeypatch):
+    """Valida diagnóstico amigável quando o Docker daemon está inativo."""
+    from core.engineering.docker_manager import DockerManager
+    mgr = DockerManager()
+    monkeypatch.setattr(mgr, "_run_cmd", lambda cmd, cwd=None, timeout=15: (1, "", "Cannot connect to the Docker daemon"))
+
+    is_up, msg = mgr.is_docker_running()
+    assert is_up is False
+    assert "nao esta em execucao" in msg
+
+    res = mgr.inspect_services()
+    assert res["success"] is False
+    assert res["is_docker_running"] is False
+    assert "desligado" in res["reply"].lower()
+
+
+def test_docker_manager_inspect_services_mock(monkeypatch):
+    """Valida o parsing consolidado de containers a partir da saída do Docker CLI."""
+    from core.engineering.docker_manager import DockerManager
+    mgr = DockerManager()
+    monkeypatch.setattr(mgr, "is_docker_running", lambda: (True, "OK"))
+
+    sample_json = (
+        '{"ID":"1a2b3c","Names":"my_postgres","Image":"postgres:15","Status":"Up 2 hours","State":"running","Ports":"0.0.0.0:5432->5432/tcp"}\n'
+        '{"ID":"4d5e6f","Names":"my_redis","Image":"redis:alpine","Status":"Up 2 hours","State":"running","Ports":"0.0.0.0:6379->6379/tcp"}'
+    )
+    monkeypatch.setattr(mgr, "_run_cmd", lambda cmd, cwd=None, timeout=15: (0, sample_json, ""))
+
+    res = mgr.inspect_services()
+    assert res["success"] is True
+    assert res["containers_count"] == 2
+    assert res["containers"][0]["name"] == "my_postgres"
+    assert res["containers"][1]["name"] == "my_redis"
+    assert "2 containers encontrados" in res["reply"]
+
+
+def test_docker_manager_manage_service_start_stop(monkeypatch):
+    """Valida início e parada de serviços específicos via Docker CLI."""
+    from core.engineering.docker_manager import DockerManager
+    mgr = DockerManager()
+    monkeypatch.setattr(mgr, "is_docker_running", lambda: (True, "OK"))
+
+    executed_cmds = []
+    def fake_run(cmd, cwd=None, timeout=30):
+        executed_cmds.append(cmd)
+        return 0, "Container executed", ""
+    monkeypatch.setattr(mgr, "_run_cmd", fake_run)
+
+    start_res = mgr.manage_service(action="start", target="postgres")
+    assert start_res["success"] is True
+    assert "inicializados" in start_res["reply"]
+    assert executed_cmds[-1] == ["docker", "start", "postgres"]
+
+    stop_res = mgr.manage_service(action="stop", target="postgres")
+    assert stop_res["success"] is True
+    assert "finalizados" in stop_res["reply"]
+    assert executed_cmds[-1] == ["docker", "stop", "postgres"]
+
+
+def test_check_service_health_tcp_and_http(monkeypatch):
+    """Valida medição de latência e detecção de socket TCP e endpoint HTTP."""
+    import socket
+    import threading
+    from core.engineering.docker_manager import DockerManager
+
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.bind(("127.0.0.1", 0))
+    server_sock.listen(1)
+    assigned_port = server_sock.getsockname()[1]
+
+    def accept_once():
+        try:
+            conn, _ = server_sock.accept()
+            conn.close()
+        except Exception:
+            pass
+        finally:
+            server_sock.close()
+
+    t = threading.Thread(target=accept_once, daemon=True)
+    t.start()
+
+    mgr = DockerManager()
+    # Porta ativa
+    res_up = mgr.check_health(target="custom", port=assigned_port)
+    assert res_up["success"] is True
+    assert res_up["reachable"] is True
+    assert res_up["status"] == "healthy"
+    assert res_up["latency_ms"] >= 0
+
+    # Porta inativa
+    res_down = mgr.check_health(target="custom", port=59998)
+    assert res_down["success"] is True
+    assert res_down["reachable"] is False
+    assert res_down["status"] in ["closed", "timeout"]
+
+    # Endpoint HTTP
+    monkeypatch.setattr(mgr, "_check_http_health", lambda url, target_name: {
+        "success": True, "target": target_name, "type": "http", "url": url,
+        "status_code": 200, "healthy": True, "latency_ms": 1.5,
+        "reply": f"API {target_name} esta ativo (200) com latencia de 1.5ms."
+    })
+    res_http = mgr.check_health(target="api", endpoint="/health")
+    assert res_http["healthy"] is True
+    assert res_http["status_code"] == 200
+
+
+def test_docker_destructive_operation_governance_block(monkeypatch):
+    """Valida que operações destrutivas exigem aprovação preventiva no HUD e bloqueiam se rejeitadas."""
+    import asyncio
+    from core.engineering.docker_manager import DockerManager
+    from core.governance.interceptor import SafetyInterceptor
+
+    interceptor = SafetyInterceptor()
+    mgr = DockerManager(interceptor=interceptor)
+
+    # Caso 1: Usuário rejeita a operação no HUD
+    async def run_rejected():
+        async def auto_reject():
+            while not interceptor.pending_tickets:
+                await asyncio.sleep(0.01)
+            ticket_id = list(interceptor.pending_tickets.keys())[0]
+            interceptor.resolve_ticket(ticket_id, approved=False)
+
+        task = asyncio.create_task(auto_reject())
+        res = await mgr.destructive_operation(action="down_volumes")
+        await task
+        return res
+
+    rej_res = asyncio.run(run_rejected())
+    assert rej_res["success"] is False
+    assert rej_res["approved"] is False
+    assert "cancelada pelo usuario" in rej_res["reply"]
+
+    # Caso 2: Usuário autoriza a operação no HUD
+    monkeypatch.setattr(mgr, "_run_cmd", lambda cmd, cwd=None, timeout=30: (0, "Pruned", ""))
+    async def run_approved():
+        async def auto_approve():
+            while not interceptor.pending_tickets:
+                await asyncio.sleep(0.01)
+            ticket_id = list(interceptor.pending_tickets.keys())[0]
+            interceptor.resolve_ticket(ticket_id, approved=True)
+
+        task = asyncio.create_task(auto_approve())
+        res = await mgr.destructive_operation(action="prune_system")
+        await task
+        return res
+
+    app_res = asyncio.run(run_approved())
+    assert app_res["success"] is True
+    assert app_res["approved"] is True
+    assert "concluida com sucesso" in app_res["reply"]

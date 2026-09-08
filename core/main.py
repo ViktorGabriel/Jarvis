@@ -19,6 +19,7 @@ from core.obsidian.journal import JournalManager
 from core.obsidian.watcher import ObsidianWatcher
 from core.obsidian.rag import VaultRAG
 from core.engineering.git_assistant import GitAssistant
+from core.engineering.docker_manager import DockerManager
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
 from core.system.workspace_orchestrator import WorkspaceOrchestrator
@@ -50,9 +51,10 @@ class JarvisDaemon:
             on_change=self._on_obsidian_change
         )
 
-        # 4. Engenharia & Git
+        # 4. Engenharia, Git & Docker
         self.git = GitAssistant(workspace_root=ROOT_DIR, interceptor=self.interceptor)
         self.journal.set_git_workspace(ROOT_DIR)
+        self.docker = DockerManager(workspace_root=ROOT_DIR, interceptor=self.interceptor)
 
         # 5. Sistema Operacional, Foco & Orquestrador de Workspaces
         self.focus = FocusManager()
@@ -70,7 +72,8 @@ class JarvisDaemon:
             focus=self.focus,
             interceptor=self.interceptor,
             broadcast_fn=self.server.broadcast,
-            orchestrator=self.orchestrator
+            orchestrator=self.orchestrator,
+            docker=self.docker
         )
 
         # 7. Áudio & Voz

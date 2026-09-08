@@ -15,6 +15,10 @@ DESTRUCTIVE_COMMAND_PATTERNS = [
     r"\bdrop\s+table\b",
     r"Remove-Item\b.*-Recurse",
     r"Remove-Item\b.*-Force",
+    r"docker\s+compose\s+down.*-v",
+    r"docker\s+system\s+prune",
+    r"docker\s+volume\s+rm",
+    r"docker\s+rm\s+-[a-zA-Z]*f",
 ]
 
 ADMIN_COMMAND_PATTERNS = [
