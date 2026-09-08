@@ -23,6 +23,11 @@ export function useJarvisSocket(url: string = 'ws://127.0.0.1:8765') {
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const agentStateRef = useRef<AgentState>('idle');
+
+  useEffect(() => {
+    agentStateRef.current = agentState;
+  }, [agentState]);
 
   const connect = useCallback(() => {
     try {
@@ -45,9 +50,29 @@ export function useJarvisSocket(url: string = 'ws://127.0.0.1:8765') {
               if (data.detail) setStateDetail(data.detail);
               break;
 
-            case 'AUDIO_METRICS':
-              setAudioVolume(data.volume || 0);
+            case 'AUDIO_METRICS': {
+              const vol = data.volume || 0;
+              setAudioVolume(vol);
+
+              // 5. Suporte a Interrupção Imediata de Fala (Barge-in):
+              // Se o assistente estiver falando e o volume do microfone ultrapassar o threshold (vol > 15.0),
+              // muta o áudio local imediatamente e transiciona o estado para listening.
+              if (agentStateRef.current === 'speaking' && vol > 15.0) {
+                console.log('[Barge-in] Interrupção por voz do usuário detectada durante fala.');
+                if (typeof window !== 'undefined' && window.speechSynthesis) {
+                  window.speechSynthesis.cancel();
+                }
+                setAgentState('listening');
+                setStateDetail('Interrompido por fala do usuário (Barge-in)...');
+                if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+                  socketRef.current.send(JSON.stringify({
+                    event: 'USER_INPUT',
+                    data: { text: '[INTERRUPCAO_BARGE_IN]' }
+                  }));
+                }
+              }
               break;
+            }
 
             case 'SYSTEM_METRICS':
               if (data.hardware) setHardware(data.hardware);

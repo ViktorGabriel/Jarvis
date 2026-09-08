@@ -29,12 +29,18 @@ function createWindow() {
 
   // Atalho global para exibir ou ocultar o J.A.R.V.I.S HUD de qualquer lugar
   globalShortcut.register('CommandOrControl+Shift+J', () => {
+    if (!mainWindow) return;
     if (mainWindow.isVisible()) {
       mainWindow.hide();
     } else {
       mainWindow.show();
       mainWindow.focus();
+      mainWindow.webContents.send('window-shown');
     }
+  });
+
+  mainWindow.on('focus', () => {
+    mainWindow?.webContents.send('window-shown');
   });
 
   mainWindow.on('closed', () => {
@@ -71,6 +77,7 @@ ipcMain.on('window-toggle-fullscreen', () => {
   }
 });
 ipcMain.on('window-close', () => mainWindow?.hide());
+ipcMain.on('window-hide', () => mainWindow?.hide());
 ipcMain.on('window-toggle-pin', (event, isPinned) => {
   mainWindow?.setAlwaysOnTop(isPinned);
 });

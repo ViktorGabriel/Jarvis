@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useJarvisSocket } from './hooks/useJarvisSocket';
-import { ArcReactor } from './components/ArcReactor';
+import { AgentOrb } from './components/AgentOrb';
+import { ToolExecutionPill } from './components/ToolExecutionPill';
 import { ApprovalModal } from './components/ApprovalModal';
 import { CodeDiffViewer } from './components/CodeDiffViewer';
 import { SystemMetrics } from './components/SystemMetrics';
@@ -39,6 +40,41 @@ export const App: React.FC = () => {
   const [inputVal, setInputVal] = useState('');
   const [isPinned, setIsPinned] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // 1. Foco automático ao acionar atalho global (window-shown)
+  useEffect(() => {
+    const unsub = (window as any).jarvisElectron?.onWindowShown?.(() => {
+      inputRef.current?.focus();
+    });
+    return () => {
+      unsub?.();
+    };
+  }, []);
+
+  // 2. Atalho Esc fora de modais críticos para ocultar instantaneamente o HUD
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // Se estiver com modal de governança aberto, o próprio modal cuida da rejeição
+        if (pendingApproval) return;
+        // Se estiver com diff aberto, fecha o diff
+        if (activeDiff) {
+          setActiveDiff(null);
+          return;
+        }
+        // Se tela limpa, oculta o HUD sem encerrar o daemon de fundo
+        if ((window as any).jarvisElectron?.hide) {
+          (window as any).jarvisElectron.hide();
+        } else if ((window as any).jarvisElectron?.close) {
+          (window as any).jarvisElectron.close();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [pendingApproval, activeDiff, setActiveDiff]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,6 +145,11 @@ export const App: React.FC = () => {
           <span className="text-[10px] text-gray-500 bg-gray-900/60 px-2 py-0.5 rounded border border-gray-800">
             GEMINI FLASH CORE
           </span>
+        </div>
+
+        {/* Indicador de Atividade / Tool Execution Pill */}
+        <div style={{ WebkitAppRegion: 'no-drag' } as any}>
+          <ToolExecutionPill state={agentState} detail={stateDetail} />
         </div>
 
         {/* Controles de Janela */}
@@ -186,14 +227,14 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* O Reator Central 3D */}
+          {/* O Reator Central 3D / Agent Orb */}
           <div className="my-auto py-2">
-            <ArcReactor state={agentState} audioVolume={audioVolume} />
+            <AgentOrb state={agentState} audioVolume={audioVolume} />
           </div>
 
           {/* Atalho Global e Dica de Voz */}
           <div className="text-center font-mono text-[11px] text-gray-400 border border-jarvis-border/20 bg-black/40 px-4 py-1.5 rounded-full">
-            Pressione <kbd className="text-jarvis-cyan font-bold">Ctrl+Shift+J</kbd> para alternar overlay • Microfone Ativo
+            Pressione <kbd className="text-jarvis-cyan font-bold">Ctrl+Shift+J</kbd> para alternar overlay • <kbd className="text-gray-300 font-bold">Esc</kbd> para ocultar
           </div>
         </section>
 
@@ -237,12 +278,13 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* Barra de Entrada de Texto */}
+          {/* Barra de Entrada de Texto com Auto-Foco */}
           <form
             onSubmit={handleSend}
             className="p-2 bg-black/60 border-t border-jarvis-border/40 flex items-center space-x-2"
           >
             <input
+              ref={inputRef}
               type="text"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
