@@ -84,3 +84,33 @@ def test_app_launcher_controls():
     assert AppLauncher.volume_up() is True
     assert AppLauncher.volume_down() is True
 
+def test_workspace_orchestrator():
+    import asyncio
+    from core.system.workspace_orchestrator import WorkspaceOrchestrator
+    from core.system.focus_manager import FocusManager
+
+    focus = FocusManager()
+    orchestrator = WorkspaceOrchestrator(focus_manager=focus)
+
+    # Testa modos existentes
+    res_dev = asyncio.run(orchestrator.activate_workspace("dev"))
+    assert res_dev["success"] is True
+    assert "desenvolvimento" in res_dev["reply"].lower()
+
+    res_study = asyncio.run(orchestrator.activate_workspace("study"))
+    assert res_study["success"] is True
+    assert "estudo" in res_study["reply"].lower()
+
+    res_deep = asyncio.run(orchestrator.activate_workspace("deep_work"))
+    assert res_deep["success"] is True
+    assert focus.is_deep_work is True
+
+    res_rest = asyncio.run(orchestrator.activate_workspace("rest"))
+    assert res_rest["success"] is True
+    assert focus.is_deep_work is False
+
+    # Testa modo inválido
+    res_invalid = asyncio.run(orchestrator.activate_workspace("desconhecido"))
+    assert res_invalid["success"] is False
+
+

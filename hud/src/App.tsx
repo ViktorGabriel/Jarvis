@@ -160,6 +160,7 @@ export const App: React.FC = () => {
             deepWork={deepWork}
             isConnected={isConnected}
             onToggleDeepWork={(enable) => toggleDeepWork(enable, 60)}
+            onActivateWorkspace={(mode) => sendUserText(`ativar workspace ${mode}`)}
           />
 
           <ObsidianWidget

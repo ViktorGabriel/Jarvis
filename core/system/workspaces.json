@@ -1,0 +1,38 @@
+{
+  "dev": {
+    "name": "Protocolo de Desenvolvimento",
+    "description": "Ambiente completo de programação: VS Code, navegador localhost e playlist de foco no Spotify.",
+    "apps": ["vscode", "browser", "spotify"],
+    "urls": ["http://localhost:5173", "https://github.com"],
+    "spotify_action": "play",
+    "deep_work": false,
+    "speech_reply": "Protocolo de desenvolvimento ativado. Ambiente de engenharia pronto, senhor."
+  },
+  "study": {
+    "name": "Modo Estudo e Pesquisa",
+    "description": "Foco em aprendizado: Cofre do Obsidian, documentações e volume equilibrado.",
+    "apps": ["obsidian", "browser"],
+    "urls": ["https://google.com"],
+    "volume_level": 30,
+    "deep_work": false,
+    "speech_reply": "Modo de estudo iniciado. Cofre do Obsidian e referências abertas, senhor."
+  },
+  "deep_work": {
+    "name": "Modo Deep Work / Foco Tático",
+    "description": "Imersão máxima: editor de código, Obsidian, cronômetro de 60min e silenciamento de distrações.",
+    "apps": ["vscode", "obsidian"],
+    "deep_work": true,
+    "deep_work_minutes": 60,
+    "volume_level": 40,
+    "speech_reply": "Modo Deep Work iniciado. Foco tático ativado por 60 minutos, notificações silenciadas."
+  },
+  "rest": {
+    "name": "Protocolo de Descompressão",
+    "description": "Encerramento de tarefas de trabalho, pausa de foco e música ambiente suave.",
+    "apps": ["spotify"],
+    "spotify_action": "pause",
+    "deep_work": false,
+    "stop_deep_work": true,
+    "speech_reply": "Ambiente de trabalho recolhido. Sessões de foco arquivadas, tenha um bom descanso, senhor."
+  }
+}

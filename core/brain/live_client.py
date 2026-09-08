@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from typing import Optional, Callable, Dict, Any
 from google import genai
 from google.genai import types
@@ -14,6 +15,7 @@ from core.governance.interceptor import SafetyInterceptor
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
 from core.system.app_launcher import AppLauncher
+from core.system.workspace_orchestrator import WorkspaceOrchestrator
 
 logger = logging.getLogger("GeminiBrain")
 
@@ -26,7 +28,8 @@ class GeminiBrain:
         git: GitAssistant,
         focus: FocusManager,
         interceptor: SafetyInterceptor,
-        broadcast_fn: Optional[Callable[[Any, dict], Any]] = None
+        broadcast_fn: Optional[Callable[[Any, dict], Any]] = None,
+        orchestrator: Optional[WorkspaceOrchestrator] = None,
     ):
         self.vault = vault
         self.journal = journal
@@ -35,6 +38,10 @@ class GeminiBrain:
         self.focus = focus
         self.interceptor = interceptor
         self.broadcast_fn = broadcast_fn
+        self.orchestrator = orchestrator or WorkspaceOrchestrator(
+            focus_manager=self.focus,
+            journal_manager=self.journal
+        )
 
         self.client: Optional[genai.Client] = None
         self._init_client()
@@ -54,7 +61,25 @@ class GeminiBrain:
         """Processa comando de texto ou fala transcrita, executando as ferramentas apropriadas."""
         text_lower = text.lower().strip()
 
-        # 1. Checa comandos rápidos de Deep Work
+        # 1. Orquestração de Workspaces e Modos de Foco (dev, study, deep_work, rest)
+        workspace_triggers = {
+            "dev": ["hora de codar", "modo dev", "modo programação", "vamos programar", "iniciar dev", "workspace dev"],
+            "study": ["modo estudo", "hora de estudar", "modo pesquisa", "workspace study", "workspace estudo"],
+            "deep_work": ["modo deep work", "foco total", "foco profundo", "modo foco total"],
+            "rest": ["hora de descansar", "modo descanso", "modo rest", "encerrar expediente", "modo pausa", "hora de relaxar"],
+        }
+        for target_mode, triggers in workspace_triggers.items():
+            if any(trig in text_lower for trig in triggers):
+                res = await self.orchestrator.activate_workspace(target_mode)
+                return {"reply": res.get("reply", "Ambiente configurado com sucesso, senhor.")}
+
+        # Regex flexível para comandos como "ativar modo dev", "definir workspace study", etc.
+        ws_match = re.search(r"(?:ativar|iniciar|definir|set|mudar para|entrar no)\s+(?:o\s+)?(?:workspace|modo)\s+([a-zA-Z_]+)", text_lower)
+        if ws_match:
+            res = await self.orchestrator.activate_workspace(ws_match.group(1))
+            return {"reply": res.get("reply", "Ambiente configurado, senhor.")}
+
+        # 2. Checa comandos rápidos de Deep Work
         if "deep work" in text_lower or "modo foco" in text_lower:
             if "iniciar" in text_lower or "começar" in text_lower:
                 res = self.focus.start_deep_work(60, "Foco do Usuário")
@@ -65,7 +90,7 @@ class GeminiBrain:
                 self.journal.append_deep_work_session(res.get("elapsed_minutes", 0), res.get("project", "Geral"))
                 return {"reply": f"Sessão de Deep Work finalizada. Registrei {res.get('elapsed_minutes', 0)} minutos na sua Daily Note do Obsidian."}
 
-        # 2. Checa comandos de Daily Note / Rotina
+        # 3. Checa comandos de Daily Note / Rotina
         if "daily note" in text_lower or "diário" in text_lower or "agenda do dia" in text_lower:
             note_path = self.journal.get_or_create_daily_note()
             return {"reply": f"Sua Daily Note foi gerada e atualizada no Obsidian: {note_path.name}"}
@@ -133,6 +158,14 @@ Notas Relevantes Encontradas:
 {rag_snippets}
 """
 
+            def activate_workspace(mode: str) -> str:
+                """Ativa e orquestra um ambiente de trabalho completo com múltiplos aplicativos e configurações de foco.
+                
+                Args:
+                    mode: O modo desejado: 'dev' (programação), 'study' (estudo/Obsidian), 'deep_work' (foco total), ou 'rest' (descanso).
+                """
+                return f"Workspace '{mode}' ativado."
+
             # Cascata de modelos para contingência contra picos de demanda (503 UNAVAILABLE)
             candidate_models = [config.gemini_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-latest"]
             candidate_models = list(dict.fromkeys(candidate_models))
@@ -148,8 +181,17 @@ Notas Relevantes Encontradas:
                             config=types.GenerateContentConfig(
                                 system_instruction=system_prompt,
                                 temperature=0.7,
+                                tools=[activate_workspace],
                             )
                         )
+                        # Se Gemini invocou a tool activate_workspace
+                        if response.function_calls:
+                            for call in response.function_calls:
+                                if call.name == "activate_workspace":
+                                    target_mode = call.args.get("mode", "dev")
+                                    ws_res = await self.orchestrator.activate_workspace(target_mode)
+                                    return {"reply": ws_res.get("reply", "Ambiente configurado, senhor.")}
+
                         reply_text = response.text or "Comando recebido, senhor."
                         return {"reply": reply_text}
                     except Exception as e:

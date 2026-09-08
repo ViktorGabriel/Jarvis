@@ -21,6 +21,7 @@ from core.obsidian.rag import VaultRAG
 from core.engineering.git_assistant import GitAssistant
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
+from core.system.workspace_orchestrator import WorkspaceOrchestrator
 from core.brain.voice_io import VoiceIO
 from core.brain.live_client import GeminiBrain
 
@@ -52,8 +53,12 @@ class JarvisDaemon:
         # 4. Engenharia & Git
         self.git = GitAssistant(workspace_root=ROOT_DIR, interceptor=self.interceptor)
 
-        # 5. Sistema Operacional & Foco
+        # 5. Sistema Operacional, Foco & Orquestrador de Workspaces
         self.focus = FocusManager()
+        self.orchestrator = WorkspaceOrchestrator(
+            focus_manager=self.focus,
+            journal_manager=self.journal
+        )
 
         # 6. Cérebro de IA
         self.brain = GeminiBrain(
@@ -63,7 +68,8 @@ class JarvisDaemon:
             git=self.git,
             focus=self.focus,
             interceptor=self.interceptor,
-            broadcast_fn=self.server.broadcast
+            broadcast_fn=self.server.broadcast,
+            orchestrator=self.orchestrator
         )
 
         # 7. Áudio & Voz

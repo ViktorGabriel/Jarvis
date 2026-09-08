@@ -7,6 +7,7 @@ interface SystemMetricsProps {
   deepWork: DeepWorkStatus;
   isConnected: boolean;
   onToggleDeepWork: (enable: boolean) => void;
+  onActivateWorkspace?: (mode: string) => void;
 }
 
 export const SystemMetrics: React.FC<SystemMetricsProps> = ({
@@ -14,6 +15,7 @@ export const SystemMetrics: React.FC<SystemMetricsProps> = ({
   deepWork,
   isConnected,
   onToggleDeepWork,
+  onActivateWorkspace,
 }) => {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -110,6 +112,48 @@ export const SystemMetrics: React.FC<SystemMetricsProps> = ({
             INICIAR SESSÃO DE 60 MIN
           </button>
         )}
+      </div>
+
+      {/* Workspaces / Modos de Foco */}
+      <div className="bg-black/60 p-3 rounded border border-jarvis-border/40 space-y-2">
+        <span className="font-hud font-bold text-white flex items-center space-x-1.5 text-xs">
+          <Zap className="w-4 h-4 text-jarvis-cyan" />
+          <span>WORKSPACES TÁTICOS</span>
+        </span>
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button
+            onClick={() => onActivateWorkspace?.('dev')}
+            className="p-2 bg-cyan-950/30 hover:bg-cyan-900/60 border border-jarvis-cyan/30 rounded flex flex-col items-center justify-center space-y-1 transition-all"
+            title="VS Code, Navegador e Spotify"
+          >
+            <Cpu className="w-4 h-4 text-jarvis-cyan" />
+            <span className="text-[10px] font-bold text-cyan-200">MODO DEV</span>
+          </button>
+          <button
+            onClick={() => onActivateWorkspace?.('study')}
+            className="p-2 bg-amber-950/30 hover:bg-amber-900/60 border border-jarvis-amber/30 rounded flex flex-col items-center justify-center space-y-1 transition-all"
+            title="Obsidian, Documentação e Referências"
+          >
+            <HardDrive className="w-4 h-4 text-jarvis-amber" />
+            <span className="text-[10px] font-bold text-amber-200">ESTUDO</span>
+          </button>
+          <button
+            onClick={() => onActivateWorkspace?.('deep_work')}
+            className="p-2 bg-red-950/30 hover:bg-red-900/60 border border-red-500/30 rounded flex flex-col items-center justify-center space-y-1 transition-all"
+            title="Foco Total sem Distrações"
+          >
+            <ShieldCheck className="w-4 h-4 text-red-400" />
+            <span className="text-[10px] font-bold text-red-200">DEEP WORK</span>
+          </button>
+          <button
+            onClick={() => onActivateWorkspace?.('rest')}
+            className="p-2 bg-blue-950/30 hover:bg-blue-900/60 border border-blue-500/30 rounded flex flex-col items-center justify-center space-y-1 transition-all"
+            title="Encerrar Ferramentas e Descansar"
+          >
+            <Clock className="w-4 h-4 text-blue-400" />
+            <span className="text-[10px] font-bold text-blue-200">DESCANSO</span>
+          </button>
+        </div>
       </div>
     </div>
   );
