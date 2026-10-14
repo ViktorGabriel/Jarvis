@@ -27,3 +27,12 @@ vault/
 .DS_Store
 Thumbs.db
 desktop.ini
+.vscode/
+.idea/
+
+# AI Agent files and instructions
+.agents/
+.agent/
+.claude/
+CLAUDE.md
+AGENTS.md
