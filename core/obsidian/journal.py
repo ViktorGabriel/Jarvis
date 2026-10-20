@@ -140,16 +140,30 @@ class JournalManager:
         # 5. Se já existe, atualiza sem sobrescrever anotações ou sessões existentes
         if full_path.exists():
             existing_content = full_path.read_text(encoding="utf-8")
+            # Remove o placeholder padrão caso prioridades reais estejam sendo definidas
+            if clean_priorities and clean_priorities != ["Definir prioridades do dia"]:
+                existing_content = existing_content.replace("- [ ] 🎯 **Definir prioridades do dia**\n", "")
+                existing_content = existing_content.replace("- [ ] 🎯 **Definir prioridades do dia**", "")
             # Adiciona novas prioridades se não estiverem presentes
-            for p in clean_priorities:
+            for p in reversed(clean_priorities):
                 if p not in existing_content:
                     existing_content = existing_content.replace("## 🎯 Foco do Dia", f"## 🎯 Foco do Dia\n- [ ] 🎯 **{p}**")
+            # Se time_blocks foram informados explicitamente, adiciona os novos blocos
+            if time_blocks:
+                for b in reversed(time_blocks):
+                    b_line = f"- **{b.get('time', '')}**: {b.get('task', '')}"
+                    if b_line not in existing_content:
+                        existing_content = existing_content.replace(
+                            "## ⏱️ Cronograma & Blocos de Tempo (Time-Blocking)",
+                            f"## ⏱️ Cronograma & Blocos de Tempo (Time-Blocking)\n{b_line}"
+                        )
             full_path.write_text(existing_content, encoding="utf-8")
             reply = f"Daily Note de hoje atualizada, senhor. {len(clean_priorities)} metas registradas."
             return {
                 "success": True,
                 "file": str(full_path),
                 "inherited_tasks_count": inherited_count,
+                "priorities_count": len(clean_priorities),
                 "reply": reply
             }
 

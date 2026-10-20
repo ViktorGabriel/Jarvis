@@ -80,17 +80,32 @@ def test_diff_engine():
     assert diff["additions"] > 0
     assert "ola mundo" in diff["diff_text"]
 
-def test_app_launcher_controls():
+def test_app_launcher_controls(monkeypatch):
     from core.system.app_launcher import AppLauncher
-    # Testa os métodos de controle de mídia e teclas sem levantar exceção
+    sent_keys = []
+    monkeypatch.setattr(AppLauncher, "_send_key", classmethod(lambda cls, vk: sent_keys.append(vk) or True))
+    # Testa os métodos de controle de mídia e teclas sem disparar eventos reais no SO
     assert AppLauncher.media_play_pause() is True
     assert AppLauncher.volume_up() is True
     assert AppLauncher.volume_down() is True
+    assert len(sent_keys) == 3
 
-def test_workspace_orchestrator():
+def test_workspace_orchestrator(monkeypatch):
     import asyncio
     from core.system.workspace_orchestrator import WorkspaceOrchestrator
     from core.system.focus_manager import FocusManager
+    from core.system.app_launcher import AppLauncher
+    from core.system.audio_controller import AudioFeedback
+
+    # Isola chamadas externas do SO para não abrir janelas reais nem alterar volume durante os testes
+    monkeypatch.setattr(AppLauncher, "launch_vscode", classmethod(lambda cls, p=None: {"success": True, "app": "VS Code"}))
+    monkeypatch.setattr(AppLauncher, "launch_obsidian", classmethod(lambda cls, p=None: {"success": True, "app": "Obsidian"}))
+    monkeypatch.setattr(AppLauncher, "launch_spotify", classmethod(lambda cls: {"success": True, "app": "Spotify"}))
+    monkeypatch.setattr(AppLauncher, "launch_browser", classmethod(lambda cls, u=None: {"success": True, "app": "Browser"}))
+    monkeypatch.setattr(AppLauncher, "launch_terminal", classmethod(lambda cls: {"success": True, "app": "Terminal"}))
+    monkeypatch.setattr(AppLauncher, "media_play_pause", classmethod(lambda cls: True))
+    monkeypatch.setattr(AppLauncher, "volume_down", classmethod(lambda cls: True))
+    monkeypatch.setattr(AudioFeedback, "play_activation", staticmethod(lambda: None))
 
     focus = FocusManager()
     orchestrator = WorkspaceOrchestrator(focus_manager=focus)
@@ -1018,3 +1033,416 @@ def test_gemini_transcribe_audio():
 
 
 
+# ── Novos Testes de Regressão, Integração e Cobertura Completa ────────────────
+
+def test_config_empty_env_fallbacks(monkeypatch):
+    """Valida que variáveis vazias no .env usam os fallbacks seguros (./vault, modelo padrão, porta)."""
+    from core.config import JarvisConfig, BASE_DIR
+
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", "   ")
+    monkeypatch.setenv("GEMINI_MODEL", "")
+    monkeypatch.setenv("WS_HOST", "")
+    monkeypatch.setenv("WS_PORT", "8899")
+
+    cfg = JarvisConfig()
+    assert cfg.obsidian_vault_path == BASE_DIR / "vault"
+    assert cfg.gemini_model == "gemini-3.5-flash-lite"
+    assert cfg.ws_host == "127.0.0.1"
+    assert cfg.ws_port == 8899
+
+
+def test_jarvis_server_websocket_lifecycle_and_broadcast():
+    """Valida ciclo de vida do servidor WebSocket IPC, handshake inicial, broadcast e recepção de eventos."""
+    import asyncio
+    import json
+    import websockets
+    from core.api.server import JarvisServer
+    from core.api.protocol import EventType, AgentState
+
+    async def run_ws_test():
+        server = JarvisServer(host="127.0.0.1", port=0)
+        received_from_client = []
+
+        async def on_msg(payload):
+            received_from_client.append(payload)
+
+        server.on_message_callback = on_msg
+        await server.start()
+        # Descobre porta efêmera alocada pelo SO
+        actual_port = server._server.sockets[0].getsockname()[1]
+
+        try:
+            async with websockets.connect(f"ws://127.0.0.1:{actual_port}") as ws:
+                # 1. Deve receber STATE_UPDATE logo ao conectar
+                init_raw = await asyncio.wait_for(ws.recv(), timeout=3.0)
+                init_pkt = json.loads(init_raw)
+                assert init_pkt["event"] == EventType.STATE_UPDATE.value
+                assert init_pkt["data"]["state"] == AgentState.IDLE.value
+
+                # 2. Testa broadcast de estado
+                await server.update_state(AgentState.THINKING, "Testando broadcast...")
+                state_raw = await asyncio.wait_for(ws.recv(), timeout=3.0)
+                state_pkt = json.loads(state_raw)
+                assert state_pkt["event"] == EventType.STATE_UPDATE.value
+                assert state_pkt["data"]["state"] == AgentState.THINKING.value
+                assert state_pkt["data"]["detail"] == "Testando broadcast..."
+
+                # 3. Envia comando do cliente para o servidor
+                await ws.send(json.dumps({"event": "USER_INPUT", "data": {"text": "ping"}}))
+                await asyncio.sleep(0.05)
+                assert len(received_from_client) == 1
+                assert received_from_client[0]["data"]["text"] == "ping"
+        finally:
+            await server.stop()
+
+    asyncio.run(run_ws_test())
+
+
+def test_jarvis_daemon_barge_in_and_hud_events(monkeypatch):
+    """Valida que [INTERRUPCAO_BARGE_IN] interrompe a fala imediatamente sem acionar o Gemini, e testa eventos do HUD."""
+    import asyncio
+    from unittest.mock import MagicMock, AsyncMock
+    from core.main import JarvisDaemon
+    from core.api.protocol import EventType, AgentState
+    from core.system.audio_controller import AudioFeedback
+
+    monkeypatch.setattr(AudioFeedback, "play_activation", staticmethod(lambda: None))
+    monkeypatch.setattr(AudioFeedback, "play_success", staticmethod(lambda: None))
+
+    daemon = JarvisDaemon()
+    daemon.vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    daemon.journal = JournalManager(daemon.vault)
+    daemon.server.broadcast = AsyncMock()
+    daemon.server.update_state = AsyncMock()
+    daemon.voice_io.stop_speaking = MagicMock()
+    daemon.brain.process_user_intent = AsyncMock(return_value={"reply": "Resposta teste"})
+
+    async def run_events():
+        # 1. Barge-in NÃO deve chamar process_user_intent, mas DEVE chamar stop_speaking()
+        await daemon.handle_hud_message({
+            "event": EventType.USER_INPUT.value,
+            "data": {"text": "[INTERRUPCAO_BARGE_IN]"}
+        })
+        daemon.voice_io.stop_speaking.assert_called_once()
+        daemon.brain.process_user_intent.assert_not_called()
+        daemon.server.update_state.assert_called_with(AgentState.IDLE)
+
+        # 2. Deep Work Toggle (iniciar e encerrar salvando no Journal)
+        await daemon.handle_hud_message({
+            "event": EventType.DEEP_WORK_TOGGLE.value,
+            "data": {"enable": True, "duration": 45}
+        })
+        assert daemon.focus.is_deep_work is True
+
+        await daemon.handle_hud_message({
+            "event": EventType.DEEP_WORK_TOGGLE.value,
+            "data": {"enable": False}
+        })
+        assert daemon.focus.is_deep_work is False
+        daily_file = daemon.journal.get_or_create_daily_note()
+        assert "Foco contínuo" in daily_file.read_text(encoding="utf-8")
+
+        # 3. Diff Decision aprovada aplica arquivo no disco
+        target_diff_file = TEST_VAULT / "applied_from_hud.py"
+        await daemon.handle_hud_message({
+            "event": EventType.DIFF_DECISION.value,
+            "data": {
+                "approved": True,
+                "file_path": str(target_diff_file),
+                "new_content": "x = 42\n"
+            }
+        })
+        assert target_diff_file.exists()
+        assert target_diff_file.read_text(encoding="utf-8") == "x = 42\n"
+
+        # 4. Request Sync transmite métricas e estado
+        daemon.server.broadcast.reset_mock()
+        await daemon.handle_hud_message({
+            "event": EventType.REQUEST_SYNC.value,
+            "data": {}
+        })
+        assert daemon.server.broadcast.call_count >= 2
+
+    asyncio.run(run_events())
+
+
+def test_git_commit_and_push_governance(monkeypatch):
+    """Valida que GitAssistant.commit e GitAssistant.push exigem aprovação no HUD e respeitam a decisão."""
+    import asyncio
+    from core.engineering.git_assistant import GitAssistant
+    from core.governance.interceptor import SafetyInterceptor
+
+    interceptor = SafetyInterceptor()
+    git = GitAssistant(workspace_root=Path("."), interceptor=interceptor)
+
+    executed_git_args = []
+    def fake_run_git(*args):
+        executed_git_args.append(args)
+        if args and args[0] == "diff":
+            return 0, "+ def nova_funcao(): pass\n", ""
+        return 0, "ok", ""
+
+    monkeypatch.setattr(git, "_run_git", fake_run_git)
+
+    # 1. Commit rejeitado no HUD não deve rodar git commit
+    async def commit_rejected():
+        async def reject():
+            while not interceptor.pending_tickets:
+                await asyncio.sleep(0.01)
+            tid = list(interceptor.pending_tickets.keys())[0]
+            interceptor.resolve_ticket(tid, approved=False)
+
+        t = asyncio.create_task(reject())
+        res = await git.commit(message="feat(api): novo endpoint", require_approval=True)
+        await t
+        return res
+
+    rej_commit = asyncio.run(commit_rejected())
+    assert rej_commit["success"] is False
+    assert not any(a[0] == "commit" for a in executed_git_args)
+
+    # 2. Commit aprovado no HUD executa git add -A e git commit
+    async def commit_approved():
+        async def approve():
+            while not interceptor.pending_tickets:
+                await asyncio.sleep(0.01)
+            tid = list(interceptor.pending_tickets.keys())[0]
+            interceptor.resolve_ticket(tid, approved=True)
+
+        t = asyncio.create_task(approve())
+        res = await git.commit(message="feat(api): novo endpoint", require_approval=True)
+        await t
+        return res
+
+    app_commit = asyncio.run(commit_approved())
+    assert app_commit["success"] is True
+    assert ("add", "-A") in executed_git_args
+    assert ("commit", "-m", "feat(api): novo endpoint") in executed_git_args
+
+    # 3. Push aprovado no HUD executa git push
+    async def push_approved():
+        async def approve():
+            while not interceptor.pending_tickets:
+                await asyncio.sleep(0.01)
+            tid = list(interceptor.pending_tickets.keys())[0]
+            interceptor.resolve_ticket(tid, approved=True)
+
+        t = asyncio.create_task(approve())
+        res = await git.push(remote="origin", branch="main")
+        await t
+        return res
+
+    app_push = asyncio.run(push_approved())
+    assert app_push["success"] is True
+    assert ("push", "origin", "main") in executed_git_args
+
+
+def test_vault_rag_search_and_atomic_notes():
+    """Valida criação de notas atômicas, busca contextual por score e montagem de contexto RAG."""
+    from core.obsidian.rag import VaultRAG
+
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    rag = VaultRAG(vault)
+
+    # Cria nota de contexto do usuário e nota atômica de projeto
+    vault.write_note("Human/User Context/Perfil.md", "Engenheiro de software focado em Python, Rust e IA.")
+    note_path = vault.create_atomic_project_note(
+        title="Arquitetura WebSocket Jarvis",
+        summary="Servidor assíncrono em Python comunicando com HUD Electron em tempo real.",
+        tags=["#arquitetura", "websocket"],
+        related_notes=["Perfil"]
+    )
+    assert note_path.exists()
+
+    results = rag.search_context("Como funciona o servidor WebSocket em Python?")
+    assert len(results) >= 1
+    assert results[0]["title"] == "Arquitetura WebSocket Jarvis"
+
+    sys_ctx = rag.build_system_context()
+    assert "Engenheiro de software" in sys_ctx
+
+
+def test_obsidian_watcher_detects_md_changes():
+    """Valida que o VaultChangeHandler dispara callbacks apenas para arquivos Markdown (.md)."""
+    from core.obsidian.watcher import VaultChangeHandler
+
+    events = []
+    handler = VaultChangeHandler(lambda ctype, path: events.append((ctype, path)))
+
+    class FakeEvent:
+        def __init__(self, src_path, is_directory=False):
+            self.src_path = src_path
+            self.is_directory = is_directory
+
+    handler.on_created(FakeEvent("C:/vault/Human/Inbox/nota.md"))
+    handler.on_modified(FakeEvent("C:/vault/Human/Inbox/nota.md"))
+    handler.on_modified(FakeEvent("C:/vault/Human/Inbox/ignorar.tmp"))
+    handler.on_created(FakeEvent("C:/vault/Human/Inbox", is_directory=True))
+
+    assert len(events) == 2
+    assert events[0] == ("created", "C:/vault/Human/Inbox/nota.md")
+    assert events[1] == ("modified", "C:/vault/Human/Inbox/nota.md")
+
+
+def test_inbox_shortcut_preserves_casing_and_supports_hud_widget():
+    """Valida que os atalhos determinísticos da Inbox preservam maiúsculas/minúsculas e aceitam o formato do ObsidianWidget."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from core.brain.live_client import GeminiBrain
+
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    brain = GeminiBrain(
+        vault=vault,
+        journal=JournalManager(vault),
+        rag=MagicMock(),
+        git=MagicMock(),
+        focus=MagicMock(),
+        interceptor=MagicMock(),
+    )
+    brain.client = None  # Garante execução 100% determinística (0 tokens)
+
+    # 1. Comando com siglas e nomes próprios
+    res1 = asyncio.run(brain.process_user_intent("Anote na inbox: Reunião sobre API GraphQL com Dr. Roberto"))
+    assert "ideia registrada" in res1["reply"].lower()
+
+    # 2. Formato enviado pelo ObsidianWidget.tsx do HUD
+    res2 = asyncio.run(brain.process_user_intent("Criar nota de pensamento rápido: Revisar PR #42 no GitHub"))
+    assert "ideia registrada" in res2["reply"].lower()
+
+    inbox_content = (TEST_VAULT / "Human" / "Inbox" / "Inbox.md").read_text(encoding="utf-8")
+    assert "Reunião sobre API GraphQL com Dr. Roberto" in inbox_content
+    assert "Revisar PR #42 no GitHub" in inbox_content
+
+
+def test_setup_daily_journal_replaces_placeholder_and_updates_time_blocks():
+    """Valida que atualizar uma Daily Note pré-criada no boot remove o placeholder e aplica novos time_blocks."""
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    journal = JournalManager(vault)
+
+    # 1. Boot do daemon cria Daily Note inicial com placeholder
+    daily_file = journal.get_or_create_daily_note()
+    assert "Definir prioridades do dia" in daily_file.read_text(encoding="utf-8")
+
+    # 2. Usuário planeja o dia em seguida
+    res = journal.setup_daily_journal(
+        priorities=["Finalizar suíte de testes", "Corrigir HUD"],
+        time_blocks=[{"time": "08:00 - 10:00", "task": "Auditoria Completa"}]
+    )
+    assert res["success"] is True
+    assert res["priorities_count"] == 2
+
+    updated = daily_file.read_text(encoding="utf-8")
+    assert "Definir prioridades do dia" not in updated
+    assert "Finalizar suíte de testes" in updated
+    assert "Corrigir HUD" in updated
+    assert "08:00 - 10:00" in updated
+    assert "Auditoria Completa" in updated
+
+
+def test_sop_ignores_index_files_and_logs_approved_governance(monkeypatch):
+    """Valida que arquivos *Index.md são ignorados na listagem de SOPs e que passos aprovados registram governança."""
+    import asyncio
+    from core.obsidian.sop_manager import SOPManager
+    from core.governance.interceptor import SafetyInterceptor
+
+    interceptor = SafetyInterceptor()
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    mgr = SOPManager(vault=vault, interceptor=interceptor)
+
+    # Cria arquivos de índice (não devem ser listados como SOPs executáveis)
+    sops_dir = TEST_VAULT / "Machine" / "SOPs"
+    (sops_dir / "SOPs Index.md").write_text("---\ntitle: SOPs Index\n---\n# Index\n", encoding="utf-8")
+
+    # Cria SOP crítico real
+    (sops_dir / "deploy-critico.md").write_text(
+        "---\ntitle: Deploy Crítico\ncategory: ops\n---\n## Passo 1: Push\n```bash\ngit push origin main\n```\n",
+        encoding="utf-8"
+    )
+
+    listed = mgr.list_sops()
+    assert listed["total"] == 1
+    assert listed["sops"][0]["id"] == "deploy-critico"
+
+    # Executa aprovando no interceptor
+    monkeypatch.setattr(mgr, "_run_cmd", lambda cmd, timeout=45: (0, "Push realizado", ""))
+
+    async def run_approved_sop():
+        async def auto_approve():
+            while not interceptor.pending_tickets:
+                await asyncio.sleep(0.01)
+            tid = list(interceptor.pending_tickets.keys())[0]
+            interceptor.resolve_ticket(tid, approved=True)
+
+        t = asyncio.create_task(auto_approve())
+        res = await mgr.execute_sop("deploy-critico")
+        await t
+        return res
+
+    res = asyncio.run(run_approved_sop())
+    assert res["success"] is True
+    log_text = Path(res["log_file"]).read_text(encoding="utf-8")
+    assert "Autorizado pelo usuário no HUD" in log_text
+
+
+def test_gemini_brain_function_calling_dispatch():
+    """Valida o roteamento de function_calls retornados pelo modelo Gemini para todas as ferramentas principais."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from core.brain.live_client import GeminiBrain
+
+    vault = ObsidianVaultManager(vault_path=TEST_VAULT)
+    journal = JournalManager(vault)
+    mock_rag = MagicMock()
+    mock_rag.build_system_context.return_value = "Contexto"
+    mock_rag.search_context.return_value = []
+    mock_git = MagicMock()
+    mock_git.workspace_root = Path(".")
+    mock_git.inspect.return_value = {"reply": "Git limpo."}
+    mock_telemetry = MagicMock()
+    mock_telemetry.get_system_metrics.return_value = {"reply": "CPU em 12%."}
+
+    brain = GeminiBrain(
+        vault=vault,
+        journal=journal,
+        rag=mock_rag,
+        git=mock_git,
+        focus=MagicMock(),
+        interceptor=MagicMock(),
+        telemetry=mock_telemetry,
+    )
+
+    mock_client = MagicMock()
+    brain.client = mock_client
+
+    class FakeCall:
+        def __init__(self, name, args):
+            self.name = name
+            self.args = args
+
+    class FakeResponse:
+        def __init__(self, function_calls=None, text=""):
+            self.function_calls = function_calls or []
+            self.text = text
+
+    # 1. Tool capture_to_inbox via function calling
+    mock_client.models.generate_content.return_value = FakeResponse(
+        function_calls=[FakeCall("capture_to_inbox", {"content": "Estudar WebAssembly", "type": "thought", "tags": ["#wasm"]})]
+    )
+    res_inbox = asyncio.run(brain.process_user_intent("guarde essa reflexão sobre wasm"))
+    assert "ideia registrada" in res_inbox["reply"].lower()
+
+    # 2. Tool git_inspect via function calling
+    mock_client.models.generate_content.return_value = FakeResponse(
+        function_calls=[FakeCall("git_inspect", {"mode": "diff"})]
+    )
+    res_git = asyncio.run(brain.process_user_intent("mostre as diferenças recentes no código"))
+    assert res_git["reply"] == "Git limpo."
+    mock_git.inspect.assert_called_with("diff")
+
+    # 3. Tool get_system_telemetry via function calling
+    mock_client.models.generate_content.return_value = FakeResponse(
+        function_calls=[FakeCall("get_system_telemetry", {"metric": "cpu"})]
+    )
+    res_tel = asyncio.run(brain.process_user_intent("qual a carga exata dos núcleos agora?"))
+    assert res_tel["reply"] == "CPU em 12%."
+    mock_telemetry.get_system_metrics.assert_called_with(metric_type="cpu")

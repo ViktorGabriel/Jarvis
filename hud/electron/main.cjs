@@ -5,6 +5,7 @@ let mainWindow = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    title: "J.A.R.V.I.S. - Sistema Tático",
     width: 1200,
     height: 800,
     minWidth: 900,
@@ -19,6 +20,12 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.cjs'),
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('window-shown');
   });
 
   const devUrl = 'http://localhost:5173';

@@ -28,17 +28,27 @@ class SafetyInterceptor:
     def set_broadcaster(self, fn: Callable[[EventType, dict], Any]):
         self.broadcast_fn = fn
 
-    async def guard_command(self, command: str, description: str = "") -> bool:
+    async def guard_command(
+        self,
+        command: str,
+        description: str = "",
+        force_approval: bool = False,
+        custom_reason: str = "",
+    ) -> bool:
         risk, reason = GovernancePolicy.evaluate_command(command)
-        if risk == RiskLevel.SAFE:
+        if risk == RiskLevel.SAFE and not force_approval:
             return True
+
+        effective_reason = custom_reason or (
+            reason if risk == RiskLevel.CRITICAL else "Confirmação supervisionada exigida para esta operação."
+        )
 
         # Travamento preventivo
         ticket = SafetyTicket(
             action_type="command_execution",
             description=description or "Execução de comando restrito no terminal",
             command=command,
-            risk_reason=reason
+            risk_reason=effective_reason
         )
         self.pending_tickets[ticket.id] = ticket
 

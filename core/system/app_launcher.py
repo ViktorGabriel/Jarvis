@@ -53,7 +53,7 @@ class AppLauncher:
         """Abre o aplicativo do Spotify via URI protocol do Windows ou executável."""
         try:
             # Tenta via protocolo URI oficial do Windows (funciona para Microsoft Store e instalador clássico)
-            os.system("start spotify:")
+            os.system('start "" "spotify:"')
             return {"success": True, "app": "Spotify", "message": "Spotify aberto com sucesso, senhor."}
         except Exception as e:
             # Fallback para caminho clássico em AppData
@@ -68,9 +68,9 @@ class AppLauncher:
         """Abre o Obsidian apontando para o cofre configurado."""
         try:
             if vault_path:
-                os.system(f'start obsidian://open?path="{vault_path}"')
+                os.system(f'start "" "obsidian://open?path={vault_path}"')
             else:
-                os.system("start obsidian:")
+                os.system('start "" "obsidian:"')
             return {"success": True, "app": "Obsidian", "message": "Obsidian aberto, senhor."}
         except Exception as e:
             return {"success": False, "app": "Obsidian", "error": str(e)}
@@ -90,7 +90,7 @@ class AppLauncher:
         """Abre o navegador padrão em uma URL ou aba em branco."""
         try:
             target = url or "https://google.com"
-            os.system(f'start {target}')
+            os.system(f'start "" "{target}"')
             return {"success": True, "app": "Navegador", "message": f"Navegador aberto em {target}."}
         except Exception as e:
             return {"success": False, "app": "Navegador", "error": str(e)}

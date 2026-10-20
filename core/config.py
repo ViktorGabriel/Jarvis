@@ -9,15 +9,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class JarvisConfig(BaseModel):
     # API & Network
-    gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    gemini_model: str = Field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"))
-    gemini_live_model: str = Field(default_factory=lambda: os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest"))
-    ws_host: str = Field(default="127.0.0.1")
-    ws_port: int = Field(default=8765)
+    gemini_api_key: str = Field(default_factory=lambda: (os.getenv("GEMINI_API_KEY") or "").strip())
+    gemini_model: str = Field(default_factory=lambda: (os.getenv("GEMINI_MODEL") or "").strip() or "gemini-3.5-flash-lite")
+    gemini_live_model: str = Field(default_factory=lambda: (os.getenv("GEMINI_LIVE_MODEL") or "").strip() or "gemini-2.5-flash-native-audio-latest")
+    ws_host: str = Field(default_factory=lambda: (os.getenv("WS_HOST") or "").strip() or "127.0.0.1")
+    ws_port: int = Field(default_factory=lambda: int((os.getenv("WS_PORT") or "").strip() or 8765))
 
     # Obsidian Vault Configuration
     obsidian_vault_path: Path = Field(
-        default_factory=lambda: Path(os.getenv("OBSIDIAN_VAULT_PATH", str(BASE_DIR / "vault")))
+        default_factory=lambda: Path((os.getenv("OBSIDIAN_VAULT_PATH") or "").strip() or str(BASE_DIR / "vault"))
     )
 
     # Audio IO Settings

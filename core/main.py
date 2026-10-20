@@ -5,6 +5,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 # Adiciona o diretório raiz ao PYTHONPATH
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -21,6 +22,7 @@ from core.obsidian.watcher import ObsidianWatcher
 from core.obsidian.rag import VaultRAG
 from core.obsidian.sop_manager import SOPManager
 from core.engineering.git_assistant import GitAssistant
+from core.engineering.diff_engine import DiffEngine
 from core.engineering.docker_manager import DockerManager
 from core.system.focus_manager import FocusManager
 from core.system.audio_controller import AudioFeedback
@@ -165,7 +167,17 @@ class JarvisDaemon:
         data = message.get("data", {})
 
         if event == EventType.USER_INPUT.value:
-            user_text = data.get("text", "")
+            user_text = (data.get("text") or "").strip()
+            if not user_text:
+                return
+
+            # Tratamento dedicado de Barge-in (interrupção imediata de fala)
+            if user_text == "[INTERRUPCAO_BARGE_IN]":
+                logger.info("Interrupção Barge-in recebida do HUD. Cancelando saída de áudio ativa.")
+                self.voice_io.stop_speaking()
+                await self.server.update_state(AgentState.IDLE)
+                return
+
             self._last_user_input_time = time.time()
             self._last_user_input_text = user_text
             logger.info(f"Comando recebido do HUD: {user_text}")
@@ -196,9 +208,35 @@ class JarvisDaemon:
                 AudioFeedback.play_activation()
             else:
                 res = self.focus.stop_deep_work()
+                self.journal.append_deep_work_session(
+                    res.get("elapsed_minutes", 0),
+                    res.get("project", "Geral")
+                )
                 AudioFeedback.play_success()
             await self.server.broadcast(EventType.NOTIFICATION, {
                 "message": f"Deep Work {'iniciado' if enable else 'encerrado'}"
+            })
+
+        elif event == EventType.DIFF_DECISION.value:
+            approved = data.get("approved", False)
+            file_path = data.get("file_path")
+            new_content = data.get("new_content")
+            if approved and file_path and new_content is not None:
+                ok = DiffEngine.apply_diff(Path(file_path), new_content)
+                await self.server.broadcast(EventType.NOTIFICATION, {
+                    "message": f"Alterações {'aplicadas' if ok else 'falharam'} em {Path(file_path).name}"
+                })
+
+        elif event == EventType.REQUEST_SYNC.value:
+            metrics = self.telemetry.get_system_metrics("summary")
+            deep_work = self.focus.get_deep_work_status()
+            await self.server.broadcast(EventType.STATE_UPDATE, {
+                "state": self.server.state.value,
+                "detail": ""
+            })
+            await self.server.broadcast(EventType.SYSTEM_METRICS, {
+                "hardware": metrics,
+                "deep_work": deep_work
             })
 
     async def _system_metrics_loop(self):

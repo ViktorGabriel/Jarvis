@@ -70,6 +70,9 @@ export function useSpeechRecognition({
         if (event.error !== 'no-speech') {
           console.warn('[HUD Voice] Erro no reconhecimento:', event.error);
           setError(event.error);
+          if (event.error === 'network' || event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            shouldListenRef.current = false;
+          }
         }
       };
 

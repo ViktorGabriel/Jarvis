@@ -253,7 +253,14 @@ tags: [audit/sop, machine/logs]
             step_title = res.get("title", f"Passo {step_num}")
             st = res.get("status", "SUCCESS")
             dur = res.get("duration_s", 0.0)
-            icon = "✅" if st == "SUCCESS" else ("⚠️" if st == "SKIPPED" else "❌")
+            if st == "SUCCESS":
+                icon = "✅"
+            elif st == "SIMULATED":
+                icon = "🟡"
+            elif st in ("SKIPPED", "WARNING"):
+                icon = "⚠️"
+            else:
+                icon = "❌"
 
             entry = f"{step_num}. **{icon} Passo {step_num}: {step_title}** — `{st}` (`{dur:.2f}s`)"
             if res.get("commands"):
@@ -317,6 +324,8 @@ class SOPManager:
             if not dir_path.exists():
                 continue
             for f in dir_path.glob("*.md"):
+                if f.stem.lower().endswith("index"):
+                    continue
                 sop = SOPParser.parse_sop(f, self.vault.vault_path)
                 if sop:
                     sops.append(sop)
@@ -382,6 +391,8 @@ class SOPManager:
 
             # Tentativa 2: Busca por stem ou título
             for f in dir_path.glob("*.md"):
+                if f.stem.lower().endswith("index"):
+                    continue
                 sop = SOPParser.parse_sop(f, self.vault.vault_path)
                 if not sop:
                     continue
@@ -475,6 +486,7 @@ class SOPManager:
             step_output = []
             step_error = []
             step_success = True
+            step_approved: Optional[bool] = None
 
             # Se o passo tiver comandos a executar
             for cmd in step.commands:
@@ -499,6 +511,7 @@ class SOPManager:
                             overall_status = "PARTIALLY_EXECUTED"
                             summary_error = f"Execução cancelada pelo usuário no passo {step.step_number}."
                             break
+                        step_approved = True
                     else:
                         step_results.append({
                             "step_number": step.step_number,
@@ -528,6 +541,7 @@ class SOPManager:
                             "step_number": step.step_number,
                             "title": step.title,
                             "status": "FAILED",
+                            "approved": step_approved,
                             "duration_s": duration,
                             "commands": [cmd],
                             "output": "\n".join(step_output),
@@ -546,6 +560,7 @@ class SOPManager:
                 "step_number": step.step_number,
                 "title": step.title,
                 "status": "SUCCESS" if step_success else "WARNING",
+                "approved": step_approved,
                 "duration_s": duration,
                 "commands": step.commands,
                 "output": "\n".join(step_output),

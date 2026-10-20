@@ -123,7 +123,9 @@ class GitAssistant:
             cmd_preview = f"git commit -m \"{final_message}\""
             allowed = await self.interceptor.guard_command(
                 cmd_preview,
-                description=f"Commit semântico: '{final_message}' ({'stage all' if stage_all else 'staged only'})"
+                description=f"Commit semântico: '{final_message}' ({'stage all' if stage_all else 'staged only'})",
+                force_approval=True,
+                custom_reason="Confirmação de commit semântico no repositório Git."
             )
             if not allowed:
                 return {

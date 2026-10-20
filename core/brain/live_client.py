@@ -170,11 +170,16 @@ class GeminiBrain:
             close_res = self.journal.close_daily_journal()
             return {"reply": close_res.get("reply", "Dia consolidado com sucesso, senhor.")}
 
-        # 3.1 Atalho direto para captura na Inbox (economia de tokens)
-        inbox_match = re.search(r"(?:anote|anota|salve|salva|adicionar?)\s+(?:na\s+|a\s+|no\s+)?(?:inbox|caixa de entrada)[:\s]+(.+)", text_lower)
+        # 3.1 Atalho direto para captura na Inbox (economia de tokens e preservação de maiúsculas/minúsculas)
+        inbox_match = re.search(
+            r"(?:(?:anote|anota|salve|salva|adicionar?)\s+(?:na\s+|a\s+|no\s+)?(?:inbox|caixa de entrada)|criar nota de pensamento rápido|captura rápida)[:\s]+(.+)",
+            text.strip(),
+            re.IGNORECASE,
+        )
         if inbox_match:
             raw_content = inbox_match.group(1).strip()
-            entry_type = "task" if any(raw_content.startswith(w) for w in ["tarefa", "fazer", "comprar", "corrigir", "implementar"]) else "thought"
+            raw_lower = raw_content.lower()
+            entry_type = "task" if any(raw_lower.startswith(w) for w in ["tarefa", "fazer", "comprar", "corrigir", "implementar"]) else "thought"
             res = self.vault.capture_to_inbox(content=raw_content, entry_type=entry_type)
             return {"reply": res.get("reply", "Anotado na sua Inbox, senhor.")}
 

@@ -58,7 +58,7 @@ export function useJarvisSocket(url: string = 'ws://127.0.0.1:8765') {
           switch (eventType) {
             case 'STATE_UPDATE':
               setAgentState(data.state || 'idle');
-              if (data.detail) setStateDetail(data.detail);
+              setStateDetail(data.detail ?? '');
               break;
 
             case 'AUDIO_METRICS': {
@@ -98,6 +98,23 @@ export function useJarvisSocket(url: string = 'ws://127.0.0.1:8765') {
             case 'DIFF_PREVIEW':
               setActiveDiff(data);
               break;
+
+            case 'NOTIFICATION': {
+              const noteText = data.message || '';
+              if (noteText) {
+                const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `sys_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                    sender: 'system',
+                    text: noteText,
+                    timestamp: time,
+                  },
+                ]);
+              }
+              break;
+            }
 
             case 'TRANSCRIPT': {
               const msgId = data.id || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`;
