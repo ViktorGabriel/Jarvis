@@ -1,4 +1,4 @@
-﻿import os
+import os
 import shutil
 import pytest
 from pathlib import Path
@@ -34,10 +34,10 @@ def test_governance_destructive_commands():
     ]
     for cmd in critical_cmds:
         risk, reason = GovernancePolicy.evaluate_command(cmd)
-        assert risk == RiskLevel.CRITICAL, f"Falha ao bloquear comando crÃ­tico: {cmd}"
+        assert risk == RiskLevel.CRITICAL, f"Falha ao bloquear comando crítico: {cmd}"
 
 def test_governance_safe_commands():
-    # Comandos que devem ser permitidos de forma autÃ´noma
+    # Comandos que devem ser permitidos de forma autônoma
     safe_cmds = [
         "git status",
         "git diff",
@@ -84,7 +84,7 @@ def test_app_launcher_controls(monkeypatch):
     from core.system.app_launcher import AppLauncher
     sent_keys = []
     monkeypatch.setattr(AppLauncher, "_send_key", classmethod(lambda cls, vk: sent_keys.append(vk) or True))
-    # Testa os mÃ©todos de controle de mÃ­dia e teclas sem disparar eventos reais no SO
+    # Testa os métodos de controle de mídia e teclas sem disparar eventos reais no SO
     assert AppLauncher.media_play_pause() is True
     assert AppLauncher.volume_up() is True
     assert AppLauncher.volume_down() is True
@@ -97,7 +97,7 @@ def test_workspace_orchestrator(monkeypatch):
     from core.system.app_launcher import AppLauncher
     from core.system.audio_controller import AudioFeedback
 
-    # Isola chamadas externas do SO para nÃ£o abrir janelas reais nem alterar volume durante os testes
+    # Isola chamadas externas do SO para não abrir janelas reais nem alterar volume durante os testes
     monkeypatch.setattr(AppLauncher, "launch_vscode", classmethod(lambda cls, p=None: {"success": True, "app": "VS Code"}))
     monkeypatch.setattr(AppLauncher, "launch_obsidian", classmethod(lambda cls, p=None: {"success": True, "app": "Obsidian"}))
     monkeypatch.setattr(AppLauncher, "launch_spotify", classmethod(lambda cls: {"success": True, "app": "Spotify"}))
@@ -127,12 +127,12 @@ def test_workspace_orchestrator(monkeypatch):
     assert res_rest["success"] is True
     assert focus.is_deep_work is False
 
-    # Testa modo invÃ¡lido
+    # Testa modo inválido
     res_invalid = asyncio.run(orchestrator.activate_workspace("desconhecido"))
     assert res_invalid["success"] is False
 
 
-# â”€â”€ Clipboard Manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Clipboard Manager ────────────────────────────────────────────────────────
 
 def test_clipboard_set_and_get():
     """Escreve e le um texto do clipboard."""
@@ -166,7 +166,7 @@ def test_clipboard_empty_returns_none_or_empty():
     assert result is None or result.strip() == ""
 
 
-# â”€â”€ Obsidian Inbox Voice Scratchpad â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Obsidian Inbox Voice Scratchpad ──────────────────────────────────────────
 
 def test_obsidian_capture_to_inbox_thought():
     """Valida o registro de pensamentos/ideias na Inbox com tags e timestamp."""
@@ -207,19 +207,19 @@ def test_obsidian_capture_to_inbox_task():
 
 
 def test_obsidian_capture_to_inbox_reference():
-    """Valida o formato de link/referÃªncia na Inbox."""
+    """Valida o formato de link/referência na Inbox."""
     vault = ObsidianVaultManager(vault_path=TEST_VAULT)
     res = vault.capture_to_inbox(
-        content="DocumentaÃ§Ã£o oficial do Google GenAI: https://ai.google.dev",
+        content="Documentação oficial do Google GenAI: https://ai.google.dev",
         entry_type="reference",
         tags=["docs"]
     )
     assert res["success"] is True
-    assert "referÃªncia" in res["reply"].lower()
+    assert "referência" in res["reply"].lower()
 
     inbox_file = TEST_VAULT / "Human" / "Inbox" / "Inbox.md"
     content = inbox_file.read_text(encoding="utf-8")
-    assert "- ðŸ”—" in content
+    assert "- 🔗" in content
     assert "https://ai.google.dev" in content
     assert "#docs" in content
 
@@ -239,10 +239,10 @@ def test_obsidian_capture_to_inbox_continuous_append():
     assert content.count("- ") >= 3
 
 
-# â”€â”€ Git & Test Runner Tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Git & Test Runner Tools ──────────────────────────────────────────────────
 
 def test_git_inspect_modes():
-    """Valida os modos de inspeÃ§Ã£o do GitAssistant (status, diff, recent_commits)."""
+    """Valida os modos de inspeção do GitAssistant (status, diff, recent_commits)."""
     from core.engineering.git_assistant import GitAssistant
     from core.governance.interceptor import SafetyInterceptor
 
@@ -264,7 +264,7 @@ def test_git_inspect_modes():
 
 
 def test_test_runner_auto_detect():
-    """Valida a detecÃ§Ã£o automÃ¡tica de comandos de teste."""
+    """Valida a detecção automática de comandos de teste."""
     from core.engineering.runner import TestAndLintRunner
 
     cmd = TestAndLintRunner.auto_detect_test_command(Path("."))
@@ -276,13 +276,13 @@ def test_test_runner_auto_detect():
 
 
 def test_test_runner_execution_summary():
-    """Valida a execuÃ§Ã£o de testes com extraÃ§Ã£o semÃ¢ntica de resumo."""
+    """Valida a execução de testes com extração semântica de resumo."""
     import asyncio
     from core.engineering.runner import TestAndLintRunner
 
     res = asyncio.run(
         TestAndLintRunner.run_tests_with_summary(
-            cmd="pytest -q tests/test_core.py -k test_governance_safe_commands",
+            cmd=r".\venv\Scripts\pytest -q tests/test_core.py -k test_governance_safe_commands",
             cwd=Path(".")
         )
     )
@@ -291,19 +291,19 @@ def test_test_runner_execution_summary():
     assert "sucesso" in res["reply"].lower()
 
 
-# â”€â”€ Daily Journal Lifecycle Tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Daily Journal Lifecycle Tools ────────────────────────────────────────────
 
 def test_setup_daily_journal_with_inheritance():
-    """Valida a criaÃ§Ã£o do diÃ¡rio matinal herdando pendÃªncias de ontem e da inbox."""
+    """Valida a criação do diário matinal herdando pendências de ontem e da inbox."""
     vault = ObsidianVaultManager(vault_path=TEST_VAULT)
     journal = JournalManager(vault)
 
-    # 1. Simula pendÃªncia na Inbox
+    # 1. Simula pendência na Inbox
     vault.capture_to_inbox("Revisar PR pendente", entry_type="task")
 
     # 2. Executa setup_daily_journal
     res = journal.setup_daily_journal(
-        priorities=["Implementar mÃ³dulo de IA", "Escrever testes"],
+        priorities=["Implementar módulo de IA", "Escrever testes"],
         time_blocks=[{"time": "09:00 - 11:00", "task": "Codar IA"}]
     )
     assert res["success"] is True
@@ -315,31 +315,31 @@ def test_setup_daily_journal_with_inheritance():
     daily_file = Path(res["file"])
     assert daily_file.exists()
     content = daily_file.read_text(encoding="utf-8")
-    assert "Implementar mÃ³dulo de IA" in content
+    assert "Implementar módulo de IA" in content
     assert "Revisar PR pendente" in content
     assert "09:00 - 11:00" in content
     assert "status: in_progress" in content
 
 
 def test_setup_daily_journal_non_destructive_update():
-    """Valida que chamar setup em nota existente atualiza sem apagar conteÃºdo."""
+    """Valida que chamar setup em nota existente atualiza sem apagar conteúdo."""
     vault = ObsidianVaultManager(vault_path=TEST_VAULT)
     journal = JournalManager(vault)
 
-    # Cria diÃ¡rio inicial
+    # Cria diário inicial
     res1 = journal.setup_daily_journal(priorities=["Meta A"])
     daily_file = Path(res1["file"])
 
-    # Anexa uma anotaÃ§Ã£o livre
+    # Anexa uma anotação livre
     with open(daily_file, "a", encoding="utf-8") as f:
-        f.write("\nMinha nota importante que nÃ£o pode sumir!\n")
+        f.write("\nMinha nota importante que não pode sumir!\n")
 
     # Atualiza com novas prioridades
     res2 = journal.setup_daily_journal(priorities=["Meta B"])
     assert res2["success"] is True
 
     content = daily_file.read_text(encoding="utf-8")
-    assert "Minha nota importante que nÃ£o pode sumir!" in content
+    assert "Minha nota importante que não pode sumir!" in content
     assert "Meta B" in content
 
 
@@ -348,15 +348,15 @@ def test_close_daily_journal():
     vault = ObsidianVaultManager(vault_path=TEST_VAULT)
     journal = JournalManager(vault)
 
-    # Prepara diÃ¡rio com 1 tarefa feita e 1 pendente
+    # Prepara diário com 1 tarefa feita e 1 pendente
     res = journal.setup_daily_journal(priorities=["Tarefa 1"])
     daily_file = Path(res["file"])
     with open(daily_file, "a", encoding="utf-8") as f:
-        f.write("\n- [x] Tarefa concluÃ­da com sucesso\n- [ ] Tarefa que ficou para amanhÃ£\n")
+        f.write("\n- [x] Tarefa concluída com sucesso\n- [ ] Tarefa que ficou para amanhã\n")
 
     # Executa fechamento
     close_res = journal.close_daily_journal(
-        reflection="Dia altamente produtivo na refatoraÃ§Ã£o",
+        reflection="Dia altamente produtivo na refatoração",
         energy_rating=5
     )
     assert close_res["success"] is True
@@ -366,12 +366,12 @@ def test_close_daily_journal():
 
     content = daily_file.read_text(encoding="utf-8")
     assert "status: closed" in content
-    assert "Dia altamente produtivo na refatoraÃ§Ã£o" in content
-    assert "â­â­â­â­â­" in content
+    assert "Dia altamente produtivo na refatoração" in content
+    assert "⭐⭐⭐⭐⭐" in content
 
 
 def test_docker_manager_is_running_and_inspect_daemon_down(monkeypatch):
-    """Valida diagnÃ³stico amigÃ¡vel quando o Docker daemon estÃ¡ inativo."""
+    """Valida diagnóstico amigável quando o Docker daemon está inativo."""
     from core.engineering.docker_manager import DockerManager
     mgr = DockerManager()
     monkeypatch.setattr(mgr, "_run_cmd", lambda cmd, cwd=None, timeout=15: (1, "", "Cannot connect to the Docker daemon"))
@@ -387,7 +387,7 @@ def test_docker_manager_is_running_and_inspect_daemon_down(monkeypatch):
 
 
 def test_docker_manager_inspect_services_mock(monkeypatch):
-    """Valida o parsing consolidado de containers a partir da saÃ­da do Docker CLI."""
+    """Valida o parsing consolidado de containers a partir da saída do Docker CLI."""
     from core.engineering.docker_manager import DockerManager
     mgr = DockerManager()
     monkeypatch.setattr(mgr, "is_docker_running", lambda: (True, "OK"))
@@ -407,7 +407,7 @@ def test_docker_manager_inspect_services_mock(monkeypatch):
 
 
 def test_docker_manager_manage_service_start_stop(monkeypatch):
-    """Valida inÃ­cio e parada de serviÃ§os especÃ­ficos via Docker CLI."""
+    """Valida início e parada de serviços específicos via Docker CLI."""
     from core.engineering.docker_manager import DockerManager
     mgr = DockerManager()
     monkeypatch.setattr(mgr, "is_docker_running", lambda: (True, "OK"))
@@ -430,7 +430,7 @@ def test_docker_manager_manage_service_start_stop(monkeypatch):
 
 
 def test_check_service_health_tcp_and_http(monkeypatch):
-    """Valida mediÃ§Ã£o de latÃªncia e detecÃ§Ã£o de socket TCP e endpoint HTTP."""
+    """Valida medição de latência e detecção de socket TCP e endpoint HTTP."""
     import socket
     import threading
     from core.engineering.docker_manager import DockerManager
@@ -478,7 +478,7 @@ def test_check_service_health_tcp_and_http(monkeypatch):
 
 
 def test_docker_destructive_operation_governance_block(monkeypatch):
-    """Valida que operaÃ§Ãµes destrutivas exigem aprovaÃ§Ã£o preventiva no HUD e bloqueiam se rejeitadas."""
+    """Valida que operações destrutivas exigem aprovação preventiva no HUD e bloqueiam se rejeitadas."""
     import asyncio
     from core.engineering.docker_manager import DockerManager
     from core.governance.interceptor import SafetyInterceptor
@@ -486,7 +486,7 @@ def test_docker_destructive_operation_governance_block(monkeypatch):
     interceptor = SafetyInterceptor()
     mgr = DockerManager(interceptor=interceptor)
 
-    # Caso 1: UsuÃ¡rio rejeita a operaÃ§Ã£o no HUD
+    # Caso 1: Usuário rejeita a operação no HUD
     async def run_rejected():
         async def auto_reject():
             while not interceptor.pending_tickets:
@@ -504,7 +504,7 @@ def test_docker_destructive_operation_governance_block(monkeypatch):
     assert rej_res["approved"] is False
     assert "cancelada pelo usuario" in rej_res["reply"]
 
-    # Caso 2: UsuÃ¡rio autoriza a operaÃ§Ã£o no HUD
+    # Caso 2: Usuário autoriza a operação no HUD
     monkeypatch.setattr(mgr, "_run_cmd", lambda cmd, cwd=None, timeout=30: (0, "Pruned", ""))
     async def run_approved():
         async def auto_approve():
@@ -525,28 +525,28 @@ def test_docker_destructive_operation_governance_block(monkeypatch):
 
 
 def test_sop_parser_frontmatter_and_steps():
-    """Valida o parser de frontmatter YAML e extraÃ§Ã£o de etapas com blocos de cÃ³digo."""
+    """Valida o parser de frontmatter YAML e extração de etapas com blocos de código."""
     from core.obsidian.sop_manager import SOPParser
 
     sop_file = TEST_VAULT / "Machine" / "SOPs" / "deploy-homolog.md"
     sop_file.parent.mkdir(parents=True, exist_ok=True)
     sop_content = """---
-title: Deploy em HomologaÃ§Ã£o
-description: Atualiza os containers de teste e executa migraÃ§Ãµes
+title: Deploy em Homologação
+description: Atualiza os containers de teste e executa migrações
 category: devops
 triggers: ["fazer deploy", "deploy homolog"]
 tags: [sop/devops, deploy]
 ---
 
-# Deploy em HomologaÃ§Ã£o
+# Deploy em Homologação
 
-## Passo 1: Atualizar RepositÃ³rio
-Puxa as alteraÃ§Ãµes mais recentes da branch main.
+## Passo 1: Atualizar Repositório
+Puxa as alterações mais recentes da branch main.
 ```bash
 git pull origin main
 ```
 
-## Passo 2: Rodar MigraÃ§Ãµes do Banco
+## Passo 2: Rodar Migrações do Banco
 Aplica os schemas pendentes.
 ```bash
 python manage.py migrate
@@ -557,13 +557,13 @@ python manage.py migrate
     sop = SOPParser.parse_sop(sop_file, TEST_VAULT)
     assert sop is not None
     assert sop.id == "deploy-homolog"
-    assert sop.title == "Deploy em HomologaÃ§Ã£o"
+    assert sop.title == "Deploy em Homologação"
     assert sop.category == "devops"
     assert "fazer deploy" in sop.triggers
     assert len(sop.steps) == 2
-    assert sop.steps[0].title == "Atualizar RepositÃ³rio"
+    assert sop.steps[0].title == "Atualizar Repositório"
     assert "git pull origin main" in sop.steps[0].commands
-    assert sop.steps[1].title == "Rodar MigraÃ§Ãµes do Banco"
+    assert sop.steps[1].title == "Rodar Migrações do Banco"
     assert "python manage.py migrate" in sop.steps[1].commands
 
 
@@ -599,7 +599,7 @@ def test_sop_list_available():
 
 
 def test_sop_execute_dry_run():
-    """Valida simulaÃ§Ã£o dry-run sem disparo de comandos reais."""
+    """Valida simulação dry-run sem disparo de comandos reais."""
     import asyncio
     from core.obsidian.sop_manager import SOPManager
 
@@ -613,12 +613,12 @@ def test_sop_execute_dry_run():
     res = asyncio.run(mgr.execute_sop("sop-test", dry_run=True))
     assert res["success"] is True
     assert res["dry_run"] is True
-    assert "SimulaÃ§Ã£o" in res["reply"]
+    assert "Simulação" in res["reply"]
     assert Path(res["log_file"]).exists()
 
 
 def test_sop_execute_sequential_and_audit_logging(monkeypatch):
-    """Valida execuÃ§Ã£o sequencial com Ãªxito e registro de auditoria em Machine/Logs."""
+    """Valida execução sequencial com êxito e registro de auditoria em Machine/Logs."""
     import asyncio
     from core.obsidian.sop_manager import SOPManager
 
@@ -665,7 +665,7 @@ echo passo2
 
 
 def test_sop_execute_governance_rejection():
-    """Valida que passo destrutivo pausa para aprovaÃ§Ã£o e encerra se rejeitado."""
+    """Valida que passo destrutivo pausa para aprovação e encerra se rejeitado."""
     import asyncio
     from core.obsidian.sop_manager import SOPManager
     from core.governance.interceptor import SafetyInterceptor
@@ -677,14 +677,14 @@ def test_sop_execute_governance_rejection():
     f = TEST_VAULT / "Machine" / "SOPs" / "limpeza-critica.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("""---
-title: Limpeza CrÃ­tica
+title: Limpeza Crítica
 category: cleanup
 ---
 ## Passo 1: Remover Volumes
 ```bash
 docker compose down -v
 ```
-## Passo 2: PÃ³s-limpeza
+## Passo 2: Pós-limpeza
 ```bash
 echo nunca_chegara_aqui
 ```
@@ -707,7 +707,7 @@ echo nunca_chegara_aqui
     assert res["status"] == "PARTIALLY_EXECUTED"
     assert "cancelada no HUD" in res["reply"]
 
-    # Verifica que o log registrou a rejeiÃ§Ã£o
+    # Verifica que o log registrou a rejeição
     log_content = Path(res["log_file"]).read_text(encoding="utf-8")
     assert "REJECTED" in log_content
 
@@ -750,11 +750,11 @@ echo 'passo2'
     assert res["status"] == "FAILED"
     assert res["completed_steps"] == 1
     assert len(executed) == 1  # Passo 2 nunca foi chamado!
-    assert "Erro na execuÃ§Ã£o" in res["reply"]
+    assert "Erro na execução" in res["reply"]
 
 
 def test_telemetry_get_system_metrics_summary():
-    """Valida coleta consolidada de mÃ©tricas de sistema (CPU, RAM, Disco e Voz)."""
+    """Valida coleta consolidada de métricas de sistema (CPU, RAM, Disco e Voz)."""
     from core.system.telemetry_service import TelemetryService
     telemetry = TelemetryService()
     metrics = telemetry.get_system_metrics("summary")
@@ -771,7 +771,7 @@ def test_telemetry_get_system_metrics_summary():
 
 
 def test_telemetry_metrics_by_type():
-    """Valida consultas direcionadas de mÃ©tricas por tipo especÃ­fico."""
+    """Valida consultas direcionadas de métricas por tipo específico."""
     from core.system.telemetry_service import TelemetryService
     telemetry = TelemetryService()
 
@@ -781,12 +781,12 @@ def test_telemetry_metrics_by_type():
     assert cpu_res["metric"] == "cpu"
     assert "CPU" in cpu_res["reply"] or "Carga" in cpu_res["reply"]
 
-    # MemÃ³ria
+    # Memória
     mem_res = telemetry.get_system_metrics("memory")
     assert mem_res["success"] is True
     assert mem_res["metric"] == "memory"
     assert "ram_total_gb" in mem_res
-    assert "MemÃ³ria RAM" in mem_res["reply"]
+    assert "Memória RAM" in mem_res["reply"]
 
     # Disco
     disk_res = telemetry.get_system_metrics("disk")
@@ -797,7 +797,7 @@ def test_telemetry_metrics_by_type():
 
 
 def test_telemetry_top_processes_extraction(monkeypatch):
-    """Valida extraÃ§Ã£o e ordenaÃ§Ã£o dos processos que mais consom recursos."""
+    """Valida extração e ordenação dos processos que mais consom recursos."""
     from core.system.telemetry_service import TelemetryService
     import psutil
 
@@ -845,7 +845,7 @@ def test_telemetry_threshold_alert_and_cooldown():
     assert alert["should_notify"] is True
     assert "heavy_process.exe" in alert["message"]
 
-    # 2. Cooldown ativo impede notificaÃ§Ã£o imediata duplicada
+    # 2. Cooldown ativo impede notificação imediata duplicada
     second_alert = telemetry._check_alerts(cpu_p=30.0, ram_p=93.0, disk_free=50.0, top_procs=fake_procs)
     assert second_alert is not None
     assert second_alert["should_notify"] is False
@@ -868,7 +868,7 @@ def test_telemetry_threshold_alert_and_cooldown():
 
 
 def test_gemini_telemetry_deterministic_trigger():
-    """Valida atalhos diretos determinÃ­sticos de telemetria no GeminiBrain (0 tokens de API)."""
+    """Valida atalhos diretos determinísticos de telemetria no GeminiBrain (0 tokens de API)."""
     import asyncio
     from unittest.mock import MagicMock
     from core.brain.live_client import GeminiBrain
@@ -877,7 +877,7 @@ def test_gemini_telemetry_deterministic_trigger():
     mock_telemetry = MagicMock(spec=TelemetryService)
     mock_telemetry.get_system_metrics.return_value = {
         "success": True,
-        "reply": "MemÃ³ria RAM em 62%, CPU operando em 15%. Sistema perfeitamente estÃ¡vel."
+        "reply": "Memória RAM em 62%, CPU operando em 15%. Sistema perfeitamente estável."
     }
 
     brain = GeminiBrain(
@@ -890,23 +890,23 @@ def test_gemini_telemetry_deterministic_trigger():
         telemetry=mock_telemetry,
     )
 
-    # Executa comando de status da mÃ¡quina
-    res = asyncio.run(brain.process_user_intent("como estÃ¡ a mÃ¡quina?"))
-    assert "MemÃ³ria RAM em 62%" in res["reply"]
+    # Executa comando de status da máquina
+    res = asyncio.run(brain.process_user_intent("como está a máquina?"))
+    assert "Memória RAM em 62%" in res["reply"]
     mock_telemetry.get_system_metrics.assert_called_with("summary")
 
     # Executa comando de uso de RAM
     mock_telemetry.get_system_metrics.return_value = {
         "success": True,
-        "reply": "MemÃ³ria RAM em 62%, com 9.8 GB utilizados de 16.0 GB."
+        "reply": "Memória RAM em 62%, com 9.8 GB utilizados de 16.0 GB."
     }
     res_ram = asyncio.run(brain.process_user_intent("uso de ram"))
-    assert "MemÃ³ria RAM em 62%" in res_ram["reply"]
+    assert "Memória RAM em 62%" in res_ram["reply"]
     mock_telemetry.get_system_metrics.assert_called_with("memory")
 
 
 def test_voice_io_vad_and_wav_generation():
-    """Valida a conversÃ£o de PCM para WAV e a montagem de frases em VoiceIO."""
+    """Valida a conversão de PCM para WAV e a montagem de frases em VoiceIO."""
     import wave
     import io
     import numpy as np
@@ -914,13 +914,13 @@ def test_voice_io_vad_and_wav_generation():
 
     voice = VoiceIO(sample_rate=16000)
 
-    # 1. Valida conversÃ£o pcm_to_wav
-    fake_pcm = b"\x00\x01" * 16000  # 1 segundo de Ã¡udio (16000 samples de 16-bit)
+    # 1. Valida conversão pcm_to_wav
+    fake_pcm = b"\x00\x01" * 16000  # 1 segundo de áudio (16000 samples de 16-bit)
     wav_bytes = voice._pcm_to_wav(fake_pcm)
     assert wav_bytes.startswith(b"RIFF")
     assert b"WAVE" in wav_bytes
 
-    # Inspeciona cabeÃ§alho WAV gerado
+    # Inspeciona cabeçalho WAV gerado
     with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
         assert wf.getnchannels() == 1
         assert wf.getsampwidth() == 2
@@ -931,7 +931,7 @@ def test_voice_io_vad_and_wav_generation():
     recorded_phrases = []
     voice.set_phrase_listener(lambda audio: recorded_phrases.append(audio))
 
-    # Simula envio de chunk de Ã¡udio ativo (vol > 12.0)
+    # Simula envio de chunk de áudio ativo (vol > 12.0)
     fake_indata = np.full((1024, 1), 0.2, dtype=np.float32)
     voice._audio_input_callback(fake_indata, 1024, None, None)
 
@@ -975,7 +975,7 @@ def test_telemetry_top_processes_caching(monkeypatch):
     assert call_count == 1
     assert res2[0]["name"] == "proc1.exe"
 
-    # Simula expiraÃ§Ã£o do TTL
+    # Simula expiração do TTL
     telemetry._last_procs_scan = time.time() - 5.0
     res3 = telemetry.get_top_processes(limit=5)
     assert call_count == 2
@@ -983,21 +983,21 @@ def test_telemetry_top_processes_caching(monkeypatch):
 
 
 def test_governance_interceptor_timeout(monkeypatch):
-    """Valida que o interceptor de governanÃ§a aplica timeout preventivo e rejeita se nÃ£o respondido."""
+    """Valida que o interceptor de governança aplica timeout preventivo e rejeita se não respondido."""
     import asyncio
     from core.governance.interceptor import SafetyInterceptor
 
     interceptor = SafetyInterceptor()
 
     async def run_timeout_check():
-        # Testa guard_command com timeout reduzido atravÃ©s de mock no wait_for
+        # Testa guard_command com timeout reduzido através de mock no wait_for
         orig_wait_for = asyncio.wait_for
 
         async def mock_wait_for(fut, timeout):
             raise asyncio.TimeoutError()
 
         monkeypatch.setattr(asyncio, "wait_for", mock_wait_for)
-        approved = await interceptor.guard_command("del /f /q critical_file.txt", "RemoÃ§Ã£o crÃ­tica")
+        approved = await interceptor.guard_command("del /f /q critical_file.txt", "Remoção crítica")
         assert approved is False
         assert len(interceptor.pending_tickets) == 0
 
@@ -1005,7 +1005,7 @@ def test_governance_interceptor_timeout(monkeypatch):
 
 
 def test_gemini_transcribe_audio():
-    """Valida o mÃ©todo transcribe_audio no GeminiBrain com mock da API GenAI."""
+    """Valida o método transcribe_audio no GeminiBrain com mock da API GenAI."""
     import asyncio
     from unittest.mock import MagicMock
     from core.brain.live_client import GeminiBrain
@@ -1021,22 +1021,22 @@ def test_gemini_transcribe_audio():
 
     mock_client = MagicMock()
     mock_response = MagicMock()
-    mock_response.text = "olÃ¡ jarvis como estÃ¡ o sistema"
+    mock_response.text = "olá jarvis como está o sistema"
     mock_client.models.generate_content.return_value = mock_response
     brain.client = mock_client
 
     fake_wav = b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
     transcription = asyncio.run(brain.transcribe_audio(fake_wav))
 
-    assert transcription == "olÃ¡ jarvis como estÃ¡ o sistema"
+    assert transcription == "olá jarvis como está o sistema"
     mock_client.models.generate_content.assert_called_once()
 
 
 
-# â”€â”€ Novos Testes de RegressÃ£o, IntegraÃ§Ã£o e Cobertura Completa â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Novos Testes de Regressão, Integração e Cobertura Completa ────────────────
 
 def test_config_empty_env_fallbacks(monkeypatch):
-    """Valida que variÃ¡veis vazias no .env usam os fallbacks seguros (./vault, modelo padrÃ£o, porta)."""
+    """Valida que variáveis vazias no .env usam os fallbacks seguros (./vault, modelo padrão, porta)."""
     from core.config import JarvisConfig, BASE_DIR
 
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", "   ")
@@ -1052,7 +1052,7 @@ def test_config_empty_env_fallbacks(monkeypatch):
 
 
 def test_jarvis_server_websocket_lifecycle_and_broadcast():
-    """Valida ciclo de vida do servidor WebSocket IPC, handshake inicial, broadcast e recepÃ§Ã£o de eventos."""
+    """Valida ciclo de vida do servidor WebSocket IPC, handshake inicial, broadcast e recepção de eventos."""
     import asyncio
     import json
     import websockets
@@ -1068,7 +1068,7 @@ def test_jarvis_server_websocket_lifecycle_and_broadcast():
 
         server.on_message_callback = on_msg
         await server.start()
-        # Descobre porta efÃªmera alocada pelo SO
+        # Descobre porta efêmera alocada pelo SO
         actual_port = server._server.sockets[0].getsockname()[1]
 
         try:
@@ -1118,7 +1118,7 @@ def test_jarvis_daemon_barge_in_and_hud_events(monkeypatch):
     daemon.brain.process_user_intent = AsyncMock(return_value={"reply": "Resposta teste"})
 
     async def run_events():
-        # 1. Barge-in NÃƒO deve chamar process_user_intent, mas DEVE chamar stop_speaking()
+        # 1. Barge-in NÃO deve chamar process_user_intent, mas DEVE chamar stop_speaking()
         await daemon.handle_hud_message({
             "event": EventType.USER_INPUT.value,
             "data": {"text": "[INTERRUPCAO_BARGE_IN]"}
@@ -1140,7 +1140,7 @@ def test_jarvis_daemon_barge_in_and_hud_events(monkeypatch):
         })
         assert daemon.focus.is_deep_work is False
         daily_file = daemon.journal.get_or_create_daily_note()
-        assert "Foco contÃ­nuo" in daily_file.read_text(encoding="utf-8")
+        assert "Foco contínuo" in daily_file.read_text(encoding="utf-8")
 
         # 3. Diff Decision aprovada aplica arquivo no disco
         target_diff_file = TEST_VAULT / "applied_from_hud.py"
@@ -1155,7 +1155,7 @@ def test_jarvis_daemon_barge_in_and_hud_events(monkeypatch):
         assert target_diff_file.exists()
         assert target_diff_file.read_text(encoding="utf-8") == "x = 42\n"
 
-        # 4. Request Sync transmite mÃ©tricas e estado
+        # 4. Request Sync transmite métricas e estado
         daemon.server.broadcast.reset_mock()
         await daemon.handle_hud_message({
             "event": EventType.REQUEST_SYNC.value,
@@ -1167,7 +1167,7 @@ def test_jarvis_daemon_barge_in_and_hud_events(monkeypatch):
 
 
 def test_git_commit_and_push_governance(monkeypatch):
-    """Valida que GitAssistant.commit e GitAssistant.push exigem aprovaÃ§Ã£o no HUD e respeitam a decisÃ£o."""
+    """Valida que GitAssistant.commit e GitAssistant.push exigem aprovação no HUD e respeitam a decisão."""
     import asyncio
     from core.engineering.git_assistant import GitAssistant
     from core.governance.interceptor import SafetyInterceptor
@@ -1184,7 +1184,7 @@ def test_git_commit_and_push_governance(monkeypatch):
 
     monkeypatch.setattr(git, "_run_git", fake_run_git)
 
-    # 1. Commit rejeitado no HUD nÃ£o deve rodar git commit
+    # 1. Commit rejeitado no HUD não deve rodar git commit
     async def commit_rejected():
         async def reject():
             while not interceptor.pending_tickets:
@@ -1238,17 +1238,17 @@ def test_git_commit_and_push_governance(monkeypatch):
 
 
 def test_vault_rag_search_and_atomic_notes():
-    """Valida criaÃ§Ã£o de notas atÃ´micas, busca contextual por score e montagem de contexto RAG."""
+    """Valida criação de notas atômicas, busca contextual por score e montagem de contexto RAG."""
     from core.obsidian.rag import VaultRAG
 
     vault = ObsidianVaultManager(vault_path=TEST_VAULT)
     rag = VaultRAG(vault)
 
-    # Cria nota de contexto do usuÃ¡rio e nota atÃ´mica de projeto
+    # Cria nota de contexto do usuário e nota atômica de projeto
     vault.write_note("Human/User Context/Perfil.md", "Engenheiro de software focado em Python, Rust e IA.")
     note_path = vault.create_atomic_project_note(
         title="Arquitetura WebSocket Jarvis",
-        summary="Servidor assÃ­ncrono em Python comunicando com HUD Electron em tempo real.",
+        summary="Servidor assíncrono em Python comunicando com HUD Electron em tempo real.",
         tags=["#arquitetura", "websocket"],
         related_notes=["Perfil"]
     )
@@ -1285,7 +1285,7 @@ def test_obsidian_watcher_detects_md_changes():
 
 
 def test_inbox_shortcut_preserves_casing_and_supports_hud_widget():
-    """Valida que os atalhos determinÃ­sticos da Inbox preservam maiÃºsculas/minÃºsculas e aceitam o formato do ObsidianWidget."""
+    """Valida que os atalhos determinísticos da Inbox preservam maiúsculas/minúsculas e aceitam o formato do ObsidianWidget."""
     import asyncio
     from unittest.mock import MagicMock
     from core.brain.live_client import GeminiBrain
@@ -1299,23 +1299,23 @@ def test_inbox_shortcut_preserves_casing_and_supports_hud_widget():
         focus=MagicMock(),
         interceptor=MagicMock(),
     )
-    brain.client = None  # Garante execuÃ§Ã£o 100% determinÃ­stica (0 tokens)
+    brain.client = None  # Garante execução 100% determinística (0 tokens)
 
-    # 1. Comando com siglas e nomes prÃ³prios
-    res1 = asyncio.run(brain.process_user_intent("Anote na inbox: ReuniÃ£o sobre API GraphQL com Dr. Roberto"))
+    # 1. Comando com siglas e nomes próprios
+    res1 = asyncio.run(brain.process_user_intent("Anote na inbox: Reunião sobre API GraphQL com Dr. Roberto"))
     assert "ideia registrada" in res1["reply"].lower()
 
     # 2. Formato enviado pelo ObsidianWidget.tsx do HUD
-    res2 = asyncio.run(brain.process_user_intent("Criar nota de pensamento rÃ¡pido: Revisar PR #42 no GitHub"))
+    res2 = asyncio.run(brain.process_user_intent("Criar nota de pensamento rápido: Revisar PR #42 no GitHub"))
     assert "ideia registrada" in res2["reply"].lower()
 
     inbox_content = (TEST_VAULT / "Human" / "Inbox" / "Inbox.md").read_text(encoding="utf-8")
-    assert "ReuniÃ£o sobre API GraphQL com Dr. Roberto" in inbox_content
+    assert "Reunião sobre API GraphQL com Dr. Roberto" in inbox_content
     assert "Revisar PR #42 no GitHub" in inbox_content
 
 
 def test_setup_daily_journal_replaces_placeholder_and_updates_time_blocks():
-    """Valida que atualizar uma Daily Note prÃ©-criada no boot remove o placeholder e aplica novos time_blocks."""
+    """Valida que atualizar uma Daily Note pré-criada no boot remove o placeholder e aplica novos time_blocks."""
     vault = ObsidianVaultManager(vault_path=TEST_VAULT)
     journal = JournalManager(vault)
 
@@ -1323,9 +1323,9 @@ def test_setup_daily_journal_replaces_placeholder_and_updates_time_blocks():
     daily_file = journal.get_or_create_daily_note()
     assert "Definir prioridades do dia" in daily_file.read_text(encoding="utf-8")
 
-    # 2. UsuÃ¡rio planeja o dia em seguida
+    # 2. Usuário planeja o dia em seguida
     res = journal.setup_daily_journal(
-        priorities=["Finalizar suÃ­te de testes", "Corrigir HUD"],
+        priorities=["Finalizar suíte de testes", "Corrigir HUD"],
         time_blocks=[{"time": "08:00 - 10:00", "task": "Auditoria Completa"}]
     )
     assert res["success"] is True
@@ -1333,14 +1333,14 @@ def test_setup_daily_journal_replaces_placeholder_and_updates_time_blocks():
 
     updated = daily_file.read_text(encoding="utf-8")
     assert "Definir prioridades do dia" not in updated
-    assert "Finalizar suÃ­te de testes" in updated
+    assert "Finalizar suíte de testes" in updated
     assert "Corrigir HUD" in updated
     assert "08:00 - 10:00" in updated
     assert "Auditoria Completa" in updated
 
 
 def test_sop_ignores_index_files_and_logs_approved_governance(monkeypatch):
-    """Valida que arquivos *Index.md sÃ£o ignorados na listagem de SOPs e que passos aprovados registram governanÃ§a."""
+    """Valida que arquivos *Index.md são ignorados na listagem de SOPs e que passos aprovados registram governança."""
     import asyncio
     from core.obsidian.sop_manager import SOPManager
     from core.governance.interceptor import SafetyInterceptor
@@ -1349,13 +1349,13 @@ def test_sop_ignores_index_files_and_logs_approved_governance(monkeypatch):
     vault = ObsidianVaultManager(vault_path=TEST_VAULT)
     mgr = SOPManager(vault=vault, interceptor=interceptor)
 
-    # Cria arquivos de Ã­ndice (nÃ£o devem ser listados como SOPs executÃ¡veis)
+    # Cria arquivos de índice (não devem ser listados como SOPs executáveis)
     sops_dir = TEST_VAULT / "Machine" / "SOPs"
     (sops_dir / "SOPs Index.md").write_text("---\ntitle: SOPs Index\n---\n# Index\n", encoding="utf-8")
 
-    # Cria SOP crÃ­tico real
+    # Cria SOP crítico real
     (sops_dir / "deploy-critico.md").write_text(
-        "---\ntitle: Deploy CrÃ­tico\ncategory: ops\n---\n## Passo 1: Push\n```bash\ngit push origin main\n```\n",
+        "---\ntitle: Deploy Crítico\ncategory: ops\n---\n## Passo 1: Push\n```bash\ngit push origin main\n```\n",
         encoding="utf-8"
     )
 
@@ -1381,7 +1381,7 @@ def test_sop_ignores_index_files_and_logs_approved_governance(monkeypatch):
     res = asyncio.run(run_approved_sop())
     assert res["success"] is True
     log_text = Path(res["log_file"]).read_text(encoding="utf-8")
-    assert "Autorizado pelo usuÃ¡rio no HUD" in log_text
+    assert "Autorizado pelo usuário no HUD" in log_text
 
 
 def test_gemini_brain_function_calling_dispatch():
@@ -1428,14 +1428,14 @@ def test_gemini_brain_function_calling_dispatch():
     mock_client.models.generate_content.return_value = FakeResponse(
         function_calls=[FakeCall("capture_to_inbox", {"content": "Estudar WebAssembly", "type": "thought", "tags": ["#wasm"]})]
     )
-    res_inbox = asyncio.run(brain.process_user_intent("guarde essa reflexÃ£o sobre wasm"))
+    res_inbox = asyncio.run(brain.process_user_intent("guarde essa reflexão sobre wasm"))
     assert "ideia registrada" in res_inbox["reply"].lower()
 
     # 2. Tool git_inspect via function calling
     mock_client.models.generate_content.return_value = FakeResponse(
         function_calls=[FakeCall("git_inspect", {"mode": "diff"})]
     )
-    res_git = asyncio.run(brain.process_user_intent("mostre as diferenÃ§as recentes no cÃ³digo"))
+    res_git = asyncio.run(brain.process_user_intent("mostre as diferenças recentes no código"))
     assert res_git["reply"] == "Git limpo."
     mock_git.inspect.assert_called_with("diff")
 
@@ -1443,6 +1443,6 @@ def test_gemini_brain_function_calling_dispatch():
     mock_client.models.generate_content.return_value = FakeResponse(
         function_calls=[FakeCall("get_system_telemetry", {"metric": "cpu"})]
     )
-    res_tel = asyncio.run(brain.process_user_intent("qual a carga exata dos nÃºcleos agora?"))
+    res_tel = asyncio.run(brain.process_user_intent("qual a carga exata dos núcleos agora?"))
     assert res_tel["reply"] == "CPU em 12%."
     mock_telemetry.get_system_metrics.assert_called_with(metric_type="cpu")
