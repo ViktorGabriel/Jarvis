@@ -36,3 +36,8 @@ desktop.ini
 .claude/
 CLAUDE.md
 AGENTS.md
+
+.agentrules
+RELATORIO_*.md
+EXPLICACAO_*.txt
+SKILLS-*.md
