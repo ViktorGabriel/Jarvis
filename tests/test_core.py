@@ -282,7 +282,7 @@ def test_test_runner_execution_summary():
 
     res = asyncio.run(
         TestAndLintRunner.run_tests_with_summary(
-            cmd=r".\venv\Scripts\pytest -q tests/test_core.py -k test_governance_safe_commands",
+            cmd=f"\"{__import__(\"sys\").executable}\" -m pytest -q tests/test_core.py -k test_governance_safe_commands",
             cwd=Path(".")
         )
     )
